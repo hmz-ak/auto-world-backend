@@ -58,6 +58,10 @@ export class ReportsService {
     };
   }
 
+  async getProfitReport(query: ReportQueryDto): Promise<ProfitReportResponseDto> {
+    return this.profit(query);
+  }
+
   async dashboardSummary(): Promise<DashboardSummaryResponseDto> {
     const startDate = startOfCurrentMonth();
     const endDate = endOfCurrentMonth();

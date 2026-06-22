@@ -81,7 +81,15 @@ export class WorkersService {
   }
 
   async recordAdvance(workerId: number, dto: CreateAdvanceDto): Promise<AdvancePaymentResponseDto> {
+    if (dto.amount <= 0) {
+      throw new BadRequestException('Advance amount must be greater than zero');
+    }
+
     const worker = await this.findEntityById(workerId);
+    if (!worker.isActive) {
+      throw new BadRequestException('Cannot record advance for an inactive worker');
+    }
+
     worker.pendingAdvance = toMoney(Number(worker.pendingAdvance) + dto.amount);
     const advance = this.advancesRepository.create({
       worker,
@@ -117,6 +125,10 @@ export class WorkersService {
   async processAllSalaries(dto: ProcessSalaryDto): Promise<SalaryProcessResultDto> {
     const workers = await this.workersRepository.find({ where: { isActive: true } });
     return this.processSalaryBatch(workers, dto);
+  }
+
+  async processSaturdayPayments(dto: ProcessSalaryDto): Promise<SalaryProcessResultDto> {
+    return this.processAllSalaries(dto);
   }
 
   async processWorkerSalary(workerId: number, dto: ProcessSalaryDto): Promise<SalaryProcessResultDto> {

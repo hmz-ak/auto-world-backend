@@ -102,6 +102,10 @@ export class AuditService {
     return this.findOne(savedLogId);
   }
 
+  async createBatch(dto: CreateAuditLogDto): Promise<AuditLogResponseDto> {
+    return this.create(dto);
+  }
+
   async update(id: number, dto: UpdateAuditLogDto): Promise<AuditLogResponseDto> {
     const log = await this.findEntityById(id);
     log.notes = dto.notes ?? log.notes;
