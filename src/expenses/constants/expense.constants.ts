@@ -1,0 +1,10 @@
+export enum ExpenseCategory {
+  UTILITIES = 'UTILITIES',
+  FUEL = 'FUEL',
+  RAW_MATERIAL = 'RAW_MATERIAL',
+  WAGES = 'WAGES',
+  TRANSPORT = 'TRANSPORT',
+  MAINTENANCE = 'MAINTENANCE',
+  RENT = 'RENT',
+  OTHER = 'OTHER'
+}

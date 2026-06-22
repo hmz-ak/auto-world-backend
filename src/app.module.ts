@@ -1,8 +1,21 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { AuditModule } from './audit/audit.module';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { ClientsModule } from './clients/clients.module';
+import { ExpensesModule } from './expenses/expenses.module';
+import { HealthModule } from './health/health.module';
+import { InventoryModule } from './inventory/inventory.module';
+import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
+import { ReceiptsModule } from './receipts/receipts.module';
+import { ReportsModule } from './reports/reports.module';
+import { RevenueModule } from './revenue/revenue.module';
+import { SeedModule } from './seed/seed.module';
+import { UsersModule } from './users/users.module';
+import { WorkersModule } from './workers/workers.module';
 
 @Module({
   imports: [
@@ -17,12 +30,29 @@ import { AppService } from './app.service';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
-        synchronize: true,
+        synchronize: configService.get<string>('NODE_ENV') === 'development',
         autoLoadEntities: true
       })
-    })
+    }),
+    HealthModule,
+    UsersModule,
+    AuthModule,
+    ClientsModule,
+    InventoryModule,
+    WorkersModule,
+    PurchaseOrdersModule,
+    ReceiptsModule,
+    AuditModule,
+    RevenueModule,
+    ExpensesModule,
+    ReportsModule,
+    SeedModule
   ],
-  controllers: [AppController],
-  providers: [AppService]
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard
+    }
+  ]
 })
 export class AppModule {}
