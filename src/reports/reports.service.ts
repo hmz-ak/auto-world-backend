@@ -13,6 +13,9 @@ import { PurchaseOrder } from '../purchase-orders/entities/purchase-order.entity
 import { RevenueEntry } from '../revenue/entities/revenue-entry.entity';
 import { RevenueService } from '../revenue/revenue.service';
 import { Worker } from '../workers/entities/worker.entity';
+import { DashboardSummaryResponseDto } from './dto/dashboard-summary-response.dto';
+import { MonthlySeriesItemDto } from './dto/monthly-series-item.dto';
+import { ProfitReportResponseDto } from './dto/profit-report-response.dto';
 import { ReportQueryDto } from './dto/report-query.dto';
 
 @Injectable()
@@ -32,7 +35,7 @@ export class ReportsService {
     private readonly ordersRepository: Repository<PurchaseOrder>
   ) {}
 
-  async profit(query: ReportQueryDto) {
+  async profit(query: ReportQueryDto): Promise<ProfitReportResponseDto> {
     const totalRevenue = await this.revenueService.sumBetween(query.startDate, query.endDate);
     const totalRawMaterialCost = await this.expensesService.sumBetween(
       query.startDate,
@@ -55,7 +58,7 @@ export class ReportsService {
     };
   }
 
-  async dashboardSummary() {
+  async dashboardSummary(): Promise<DashboardSummaryResponseDto> {
     const startDate = startOfCurrentMonth();
     const endDate = endOfCurrentMonth();
     const revenueThisMonth = await this.revenueService.sumBetween(startDate, endDate);
@@ -82,7 +85,7 @@ export class ReportsService {
     };
   }
 
-  async monthlySeries(query: ReportQueryDto) {
+  async monthlySeries(query: ReportQueryDto): Promise<MonthlySeriesItemDto[]> {
     const revenueRows = await this.revenueRepository
       .createQueryBuilder('revenue')
       .select("TO_CHAR(revenue.revenueDate, 'YYYY-MM')", 'month')
@@ -107,6 +110,21 @@ export class ReportsService {
       const existing = monthMap.get(row.month) ?? { month: row.month, revenue: 0, expenses: 0 };
       monthMap.set(row.month, { ...existing, expenses: toMoney(row.expenses) });
     });
-    return Array.from(monthMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+    return Array.from(monthMap.values())
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map((row) => ({
+        month: this.formatMonthLabel(row.month),
+        revenue: row.revenue,
+        expenses: row.expenses,
+        netProfit: toMoney(row.revenue - row.expenses)
+      }));
+  }
+
+  private formatMonthLabel(monthKey: string): string {
+    const [year, month] = monthKey.split('-').map(Number);
+    return new Date(year, month - 1, 1).toLocaleDateString('en-US', {
+      month: 'short',
+      year: 'numeric'
+    });
   }
 }

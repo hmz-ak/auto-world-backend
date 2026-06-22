@@ -3,14 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { UsersService } from '../users/users.service';
+import { AuthUserDto, LoginResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 
 export interface AuthResult {
   accessToken: string;
-  user: {
-    id: number;
-    username: string;
-  };
+  response: LoginResponseDto;
 }
 
 @Injectable()
@@ -38,10 +36,7 @@ export class AuthService {
 
     return {
       accessToken,
-      user: {
-        id: user.id,
-        username: user.username
-      }
+      response: { user: this.mapUser(user) }
     };
   }
 
@@ -53,6 +48,20 @@ export class AuthService {
       secure: isProduction,
       path: '/',
       maxAge: 8 * 60 * 60 * 1000
+    };
+  }
+
+  mapAuthenticatedUser(user: AuthUserDto): AuthUserDto {
+    return {
+      id: user.id,
+      username: user.username
+    };
+  }
+
+  private mapUser(user: AuthUserDto): AuthUserDto {
+    return {
+      id: user.id,
+      username: user.username
     };
   }
 }

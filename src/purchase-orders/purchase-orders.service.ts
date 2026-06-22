@@ -2,11 +2,16 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ClientsService } from '../clients/clients.service';
+import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { multiplyMoney, toMoney } from '../common/utils/money.util';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
 import { PurchaseOrderStatus } from './constants/purchase-order.constants';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { PurchaseOrderQueryDto } from './dto/purchase-order-query.dto';
+import {
+  PurchaseOrderListItemDto,
+  PurchaseOrderResponseDto
+} from './dto/purchase-order-response.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { PurchaseOrder } from './entities/purchase-order.entity';
@@ -21,12 +26,13 @@ export class PurchaseOrdersService {
     private readonly itemsRepository: Repository<PurchaseOrderItem>
   ) {}
 
-  async findAll(query: PurchaseOrderQueryDto) {
+  async findAll(query: PurchaseOrderQueryDto): Promise<PaginatedResult<PurchaseOrderListItemDto>> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const builder = this.ordersRepository
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.client', 'client')
+      .loadRelationCountAndMap('order.itemCount', 'order.items')
       .orderBy('order.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
@@ -40,10 +46,15 @@ export class PurchaseOrdersService {
     }
 
     const [orders, total] = await builder.getManyAndCount();
-    return buildPaginatedResult(orders, total, page, limit);
+    return buildPaginatedResult(orders.map((order) => this.mapListItem(order)), total, page, limit);
   }
 
-  async findOne(id: number): Promise<PurchaseOrder> {
+  async findOne(id: number): Promise<PurchaseOrderResponseDto> {
+    const order = await this.findEntityById(id);
+    return this.mapOrder(order);
+  }
+
+  async findEntityById(id: number): Promise<PurchaseOrder> {
     const order = await this.ordersRepository.findOne({
       where: { id },
       relations: { client: true, items: true }
@@ -54,8 +65,8 @@ export class PurchaseOrdersService {
     return order;
   }
 
-  async create(dto: CreatePurchaseOrderDto): Promise<PurchaseOrder> {
-    const client = await this.clientsService.findOne(dto.clientId);
+  async create(dto: CreatePurchaseOrderDto): Promise<PurchaseOrderResponseDto> {
+    const client = await this.clientsService.findEntityById(dto.clientId);
     const order = this.ordersRepository.create({
       client,
       orderNumber: await this.generateOrderNumber(dto.orderDate),
@@ -74,26 +85,65 @@ export class PurchaseOrdersService {
       })
     );
     order.totalAmount = toMoney(order.items.reduce((sum, item) => sum + Number(item.totalPrice), 0));
-    return this.ordersRepository.save(order);
+    const savedOrder = await this.ordersRepository.save(order);
+    return this.findOne(savedOrder.id);
   }
 
-  async update(id: number, dto: UpdatePurchaseOrderDto): Promise<PurchaseOrder> {
-    const order = await this.findOne(id);
+  async update(id: number, dto: UpdatePurchaseOrderDto): Promise<PurchaseOrderResponseDto> {
+    const order = await this.findEntityById(id);
     Object.assign(order, dto);
-    return this.ordersRepository.save(order);
+    const savedOrder = await this.ordersRepository.save(order);
+    return this.findOne(savedOrder.id);
   }
 
-  async updateStatus(id: number, status: PurchaseOrderStatus): Promise<PurchaseOrder> {
+  async updateStatus(id: number, status: PurchaseOrderStatus): Promise<PurchaseOrderResponseDto> {
     return this.update(id, { status });
   }
 
-  async cancel(id: number): Promise<PurchaseOrder> {
-    const order = await this.findOne(id);
+  async cancel(id: number): Promise<PurchaseOrderResponseDto> {
+    const order = await this.findEntityById(id);
     if (order.status === PurchaseOrderStatus.COMPLETED) {
       throw new ForbiddenException('Completed orders cannot be cancelled');
     }
     order.status = PurchaseOrderStatus.CANCELLED;
-    return this.ordersRepository.save(order);
+    const savedOrder = await this.ordersRepository.save(order);
+    return this.findOne(savedOrder.id);
+  }
+
+  private mapOrder(order: PurchaseOrder): PurchaseOrderResponseDto {
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      client: this.clientsService.mapClient(order.client),
+      orderDate: order.orderDate as unknown as Date,
+      deliveryDate: order.deliveryDate as unknown as Date | null,
+      status: order.status,
+      totalAmount: Number(order.totalAmount),
+      notes: order.notes,
+      items: (order.items ?? []).map((item) => ({
+        id: item.id,
+        productName: item.productName,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        totalPrice: Number(item.totalPrice)
+      })),
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt
+    };
+  }
+
+  private mapListItem(order: PurchaseOrder & { itemCount?: number }): PurchaseOrderListItemDto {
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      clientId: order.client.id,
+      clientName: order.client.name,
+      orderDate: order.orderDate as unknown as Date,
+      deliveryDate: order.deliveryDate as unknown as Date | null,
+      status: order.status,
+      totalAmount: Number(order.totalAmount),
+      itemCount: order.itemCount ?? 0
+    };
   }
 
   private async generateOrderNumber(orderDate: string): Promise<string> {

@@ -1,15 +1,17 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
+import { toMoney } from '../common/utils/money.util';
+import { buildPaginatedResult } from '../common/utils/pagination.util';
 import { InventoryService } from '../inventory/inventory.service';
 import { PurchaseOrdersService } from '../purchase-orders/purchase-orders.service';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { AuditLogResponseDto } from './dto/audit-log-response.dto';
 import { CreateAuditLogDto } from './dto/create-audit-log.dto';
 import { UpdateAuditLogDto } from './dto/update-audit-log.dto';
 import { AuditLogItem } from './entities/audit-log-item.entity';
 import { AuditLog } from './entities/audit-log.entity';
-import { toMoney } from '../common/utils/money.util';
-import { buildPaginatedResult } from '../common/utils/pagination.util';
 
 @Injectable()
 export class AuditService {
@@ -21,17 +23,22 @@ export class AuditService {
     private readonly auditRepository: Repository<AuditLog>
   ) {}
 
-  async findAll(page = 1, limit = 20) {
+  async findAll(page = 1, limit = 20): Promise<PaginatedResult<AuditLogResponseDto>> {
     const [logs, total] = await this.auditRepository.findAndCount({
-      relations: { linkedOrder: true, items: true },
+      relations: { linkedOrder: true, items: { inventoryItem: true } },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit
     });
-    return buildPaginatedResult(logs, total, page, limit);
+    return buildPaginatedResult(logs.map((log) => this.mapLog(log)), total, page, limit);
   }
 
-  async findOne(id: number): Promise<AuditLog> {
+  async findOne(id: number): Promise<AuditLogResponseDto> {
+    const log = await this.findEntityById(id);
+    return this.mapLog(log);
+  }
+
+  async findEntityById(id: number): Promise<AuditLog> {
     const log = await this.auditRepository.findOne({
       where: { id },
       relations: { linkedOrder: true, items: { inventoryItem: true } }
@@ -42,7 +49,7 @@ export class AuditService {
     return log;
   }
 
-  async create(dto: CreateAuditLogDto): Promise<AuditLog> {
+  async create(dto: CreateAuditLogDto): Promise<AuditLogResponseDto> {
     const checkedItems = await Promise.all(
       dto.items.map(async (item) => ({
         request: item,
@@ -53,10 +60,10 @@ export class AuditService {
       }))
     );
     const linkedOrder = dto.linkedOrderId
-      ? await this.purchaseOrdersService.findOne(dto.linkedOrderId)
+      ? await this.purchaseOrdersService.findEntityById(dto.linkedOrderId)
       : null;
 
-    return this.dataSource.transaction(async (manager) => {
+    const savedLogId = await this.dataSource.transaction(async (manager) => {
       const auditLog = manager.create(AuditLog, {
         batchNumber: await this.generateBatchNumber(dto.productionDate),
         productProduced: dto.productProduced,
@@ -89,18 +96,42 @@ export class AuditService {
         );
       }
 
-      return this.findOne(savedLog.id);
+      return savedLog.id;
     });
+
+    return this.findOne(savedLogId);
   }
 
-  async update(id: number, dto: UpdateAuditLogDto): Promise<AuditLog> {
-    const log = await this.findOne(id);
+  async update(id: number, dto: UpdateAuditLogDto): Promise<AuditLogResponseDto> {
+    const log = await this.findEntityById(id);
     log.notes = dto.notes ?? log.notes;
-    return this.auditRepository.save(log);
+    const savedLog = await this.auditRepository.save(log);
+    return this.findOne(savedLog.id);
   }
 
   remove(): never {
     throw new ForbiddenException('Audit logs are permanent and cannot be deleted');
+  }
+
+  private mapLog(log: AuditLog): AuditLogResponseDto {
+    return {
+      id: log.id,
+      batchNumber: log.batchNumber,
+      productProduced: log.productProduced,
+      quantityProduced: Number(log.quantityProduced),
+      productionDate: log.productionDate as unknown as Date,
+      linkedOrderId: log.linkedOrder?.id ?? null,
+      linkedOrderNumber: log.linkedOrder?.orderNumber ?? null,
+      notes: log.notes,
+      consumedItems: (log.items ?? []).map((item) => ({
+        id: item.id,
+        inventoryItemId: item.inventoryItem.id,
+        inventoryItemName: item.inventoryItem.name,
+        unit: item.inventoryItem.unit,
+        quantityConsumed: Number(item.quantityConsumed)
+      })),
+      createdAt: log.createdAt
+    };
   }
 
   private async generateBatchNumber(productionDate: string): Promise<string> {

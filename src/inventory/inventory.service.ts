@@ -6,11 +6,15 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { DeleteResponseDto } from '../common/dto/delete-response.dto';
+import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { multiplyMoney, toMoney } from '../common/utils/money.util';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
 import { InventoryStatus } from './constants/inventory.constants';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
+import { InventoryItemResponseDto } from './dto/inventory-item-response.dto';
 import { InventoryQueryDto } from './dto/inventory-query.dto';
+import { InventorySummaryResponseDto } from './dto/inventory-summary-response.dto';
 import { UpdateInventoryItemDto } from './dto/update-inventory-item.dto';
 import { InventoryItem } from './entities/inventory-item.entity';
 
@@ -21,7 +25,7 @@ export class InventoryService {
     private readonly inventoryRepository: Repository<InventoryItem>
   ) {}
 
-  async findAll(query: InventoryQueryDto) {
+  async findAll(query: InventoryQueryDto): Promise<PaginatedResult<InventoryItemResponseDto>> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const builder = this.inventoryRepository
@@ -39,10 +43,15 @@ export class InventoryService {
     }
 
     const [items, total] = await builder.getManyAndCount();
-    return buildPaginatedResult(items, total, page, limit);
+    return buildPaginatedResult(items.map((item) => this.mapItem(item)), total, page, limit);
   }
 
-  async findOne(id: number): Promise<InventoryItem> {
+  async findOne(id: number): Promise<InventoryItemResponseDto> {
+    const item = await this.findEntityById(id);
+    return this.mapItem(item);
+  }
+
+  async findEntityById(id: number): Promise<InventoryItem> {
     const item = await this.inventoryRepository.findOne({ where: { id } });
     if (!item) {
       throw new NotFoundException(`Inventory item with ID ${id} not found`);
@@ -50,25 +59,25 @@ export class InventoryService {
     return item;
   }
 
-  async create(dto: CreateInventoryItemDto): Promise<InventoryItem> {
+  async create(dto: CreateInventoryItemDto): Promise<InventoryItemResponseDto> {
     const item = this.inventoryRepository.create({
       ...dto,
       availableQuantity: dto.totalQuantity,
       consumedQuantity: 0,
       status: this.computeStatus(dto.totalQuantity, dto.totalQuantity)
     });
-    return this.inventoryRepository.save(item);
+    return this.mapItem(await this.inventoryRepository.save(item));
   }
 
-  async update(id: number, dto: UpdateInventoryItemDto): Promise<InventoryItem> {
-    const item = await this.findOne(id);
+  async update(id: number, dto: UpdateInventoryItemDto): Promise<InventoryItemResponseDto> {
+    const item = await this.findEntityById(id);
     Object.assign(item, dto);
     item.status = this.computeStatus(Number(item.availableQuantity), Number(item.totalQuantity));
-    return this.inventoryRepository.save(item);
+    return this.mapItem(await this.inventoryRepository.save(item));
   }
 
-  async remove(id: number): Promise<{ deleted: true }> {
-    const item = await this.findOne(id);
+  async remove(id: number): Promise<DeleteResponseDto> {
+    const item = await this.findEntityById(id);
     if (Number(item.consumedQuantity) > 0) {
       throw new ForbiddenException('Cannot delete inventory item after consumption');
     }
@@ -76,7 +85,7 @@ export class InventoryService {
     return { deleted: true };
   }
 
-  async summary() {
+  async summary(): Promise<InventorySummaryResponseDto> {
     const rows = await this.inventoryRepository
       .createQueryBuilder('item')
       .select('COUNT(item.id)', 'totalItems')
@@ -92,7 +101,7 @@ export class InventoryService {
 
     return {
       totalItems: Number(rows?.totalItems ?? 0),
-      totalValue: toMoney(rows?.totalValue ?? 0),
+      totalInventoryValue: toMoney(rows?.totalValue ?? 0),
       lowStockCount: Number(rows?.lowStockCount ?? 0),
       outOfStockCount: Number(rows?.outOfStockCount ?? 0)
     };
@@ -116,7 +125,7 @@ export class InventoryService {
   }
 
   async assertAvailable(id: number, requestedQuantity: number): Promise<InventoryItem> {
-    const item = await this.findOne(id);
+    const item = await this.findEntityById(id);
     const availableQuantity = Number(item.availableQuantity);
     if (availableQuantity < requestedQuantity) {
       throw new BadRequestException(
@@ -124,5 +133,23 @@ export class InventoryService {
       );
     }
     return item;
+  }
+
+  mapItem(item: InventoryItem): InventoryItemResponseDto {
+    return {
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      unit: item.unit,
+      totalQuantity: Number(item.totalQuantity),
+      availableQuantity: Number(item.availableQuantity),
+      consumedQuantity: Number(item.consumedQuantity),
+      purchasePricePerUnit: Number(item.purchasePricePerUnit),
+      totalValue: this.getTotalValue(item),
+      status: item.status,
+      notes: item.notes,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt
+    };
   }
 }

@@ -2,11 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ClientsService } from '../clients/clients.service';
+import { DeleteResponseDto } from '../common/dto/delete-response.dto';
+import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { toMoney } from '../common/utils/money.util';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
 import { ReceiptsService } from '../receipts/receipts.service';
 import { CreateRevenueEntryDto } from './dto/create-revenue-entry.dto';
+import { RevenueEntryResponseDto } from './dto/revenue-entry-response.dto';
 import { RevenueQueryDto } from './dto/revenue-query.dto';
+import { RevenueSummaryResponseDto } from './dto/revenue-summary-response.dto';
 import { UpdateRevenueEntryDto } from './dto/update-revenue-entry.dto';
 import { RevenueEntry } from './entities/revenue-entry.entity';
 
@@ -19,7 +23,7 @@ export class RevenueService {
     private readonly revenueRepository: Repository<RevenueEntry>
   ) {}
 
-  async findAll(query: RevenueQueryDto) {
+  async findAll(query: RevenueQueryDto): Promise<PaginatedResult<RevenueEntryResponseDto>> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const builder = this.revenueRepository
@@ -36,10 +40,15 @@ export class RevenueService {
     }
 
     const [entries, total] = await builder.getManyAndCount();
-    return buildPaginatedResult(entries, total, page, limit);
+    return buildPaginatedResult(entries.map((entry) => this.mapEntry(entry)), total, page, limit);
   }
 
-  async findOne(id: number): Promise<RevenueEntry> {
+  async findOne(id: number): Promise<RevenueEntryResponseDto> {
+    const entry = await this.findEntityById(id);
+    return this.mapEntry(entry);
+  }
+
+  async findEntityById(id: number): Promise<RevenueEntry> {
     const entry = await this.revenueRepository.findOne({
       where: { id },
       relations: { client: true, receipt: true }
@@ -50,27 +59,30 @@ export class RevenueService {
     return entry;
   }
 
-  async create(dto: CreateRevenueEntryDto): Promise<RevenueEntry> {
-    const client = dto.clientId ? await this.clientsService.findOne(dto.clientId) : null;
-    const receipt = dto.receiptId ? await this.receiptsService.findOne(dto.receiptId) : null;
-    return this.revenueRepository.save(this.revenueRepository.create({ ...dto, client, receipt }));
+  async create(dto: CreateRevenueEntryDto): Promise<RevenueEntryResponseDto> {
+    const client = dto.clientId ? await this.clientsService.findEntityById(dto.clientId) : null;
+    const receipt = dto.receiptId ? await this.receiptsService.findEntityById(dto.receiptId) : null;
+    const entry = await this.revenueRepository.save(this.revenueRepository.create({ ...dto, client, receipt }));
+    return this.mapEntry(entry);
   }
 
-  async update(id: number, dto: UpdateRevenueEntryDto): Promise<RevenueEntry> {
-    const entry = await this.findOne(id);
-    const client = dto.clientId ? await this.clientsService.findOne(dto.clientId) : entry.client;
-    const receipt = dto.receiptId ? await this.receiptsService.findOne(dto.receiptId) : entry.receipt;
+  async update(id: number, dto: UpdateRevenueEntryDto): Promise<RevenueEntryResponseDto> {
+    const entry = await this.findEntityById(id);
+    const client =
+      typeof dto.clientId === 'number' ? await this.clientsService.findEntityById(dto.clientId) : entry.client;
+    const receipt =
+      typeof dto.receiptId === 'number' ? await this.receiptsService.findEntityById(dto.receiptId) : entry.receipt;
     Object.assign(entry, dto, { client, receipt });
-    return this.revenueRepository.save(entry);
+    return this.mapEntry(await this.revenueRepository.save(entry));
   }
 
-  async remove(id: number): Promise<{ deleted: true }> {
-    await this.findOne(id);
+  async remove(id: number): Promise<DeleteResponseDto> {
+    await this.findEntityById(id);
     await this.revenueRepository.delete(id);
     return { deleted: true };
   }
 
-  async summary(query: RevenueQueryDto) {
+  async summary(query: RevenueQueryDto): Promise<RevenueSummaryResponseDto> {
     const builder = this.revenueRepository
       .createQueryBuilder('revenue')
       .select('COALESCE(SUM(revenue.amount), 0)', 'totalRevenue')
@@ -100,5 +112,20 @@ export class RevenueService {
     if (endDate) {
       builder.andWhere('revenue.revenueDate <= :endDate', { endDate });
     }
+  }
+
+  private mapEntry(entry: RevenueEntry): RevenueEntryResponseDto {
+    return {
+      id: entry.id,
+      clientId: entry.client?.id ?? null,
+      clientName: entry.client?.name ?? null,
+      receiptId: entry.receipt?.id ?? null,
+      receiptNumber: entry.receipt?.receiptNumber ?? null,
+      amount: Number(entry.amount),
+      description: entry.description,
+      revenueDate: entry.revenueDate as unknown as Date,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt
+    };
   }
 }
