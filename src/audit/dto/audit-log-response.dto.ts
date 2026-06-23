@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { AuditLogItemResponseDto } from './audit-log-item-response.dto';
+import { ManufacturingItemResponseDto } from './manufacturing-item-response.dto';
 
 export class AuditLogResponseDto {
   @ApiProperty({ example: 1, description: 'Audit log ID' })
@@ -22,6 +23,18 @@ export class AuditLogResponseDto {
 
   @ApiProperty({ example: 'PO-20260622-0001', nullable: true, description: 'Linked purchase order number' })
   linkedOrderNumber: string | null;
+
+  @ApiProperty({ example: 1, nullable: true, description: 'Manufacturing client ID' })
+  clientId: number | null;
+
+  @ApiProperty({ example: 'New Asia', nullable: true, description: 'Manufacturing client name' })
+  clientName: string | null;
+
+  @ApiProperty({ type: [ManufacturingItemResponseDto], description: 'Manufactured kamani lines' })
+  manufacturingItems: ManufacturingItemResponseDto[];
+
+  @ApiProperty({ example: 10325, description: 'Total raw material weight consumed in kg' })
+  totalWeightConsumed: number;
 
   @ApiProperty({ example: 'Day shift batch', nullable: true, description: 'Notes' })
   notes: string | null;

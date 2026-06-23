@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import {
   InventoryCategory,
+  InventoryRawMaterialSize,
   InventoryStatus,
   InventoryUnit
 } from '../constants/inventory.constants';
@@ -26,6 +27,14 @@ export class InventoryItem {
 
   @Column({ type: 'enum', enum: InventoryUnit, nullable: false })
   unit: InventoryUnit;
+
+  @Column({
+    name: 'raw_material_size',
+    type: 'enum',
+    enum: InventoryRawMaterialSize,
+    nullable: true
+  })
+  rawMaterialSize: InventoryRawMaterialSize | null;
 
   @Column({ name: 'total_quantity', type: 'decimal', precision: 12, scale: 2, nullable: false })
   totalQuantity: number;

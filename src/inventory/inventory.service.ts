@@ -10,7 +10,7 @@ import { DeleteResponseDto } from '../common/dto/delete-response.dto';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { multiplyMoney, toMoney } from '../common/utils/money.util';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
-import { InventoryStatus } from './constants/inventory.constants';
+import { InventoryCategory, InventoryRawMaterialSize, InventoryStatus } from './constants/inventory.constants';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { InventoryItemResponseDto } from './dto/inventory-item-response.dto';
 import { InventoryQueryDto } from './dto/inventory-query.dto';
@@ -62,6 +62,7 @@ export class InventoryService {
   async create(dto: CreateInventoryItemDto): Promise<InventoryItemResponseDto> {
     const item = this.inventoryRepository.create({
       ...dto,
+      rawMaterialSize: this.resolveRawMaterialSize(dto.category, dto.rawMaterialSize),
       availableQuantity: dto.totalQuantity,
       consumedQuantity: 0,
       status: this.computeStatus(dto.totalQuantity, dto.totalQuantity)
@@ -72,6 +73,7 @@ export class InventoryService {
   async update(id: number, dto: UpdateInventoryItemDto): Promise<InventoryItemResponseDto> {
     const item = await this.findEntityById(id);
     Object.assign(item, dto);
+    item.rawMaterialSize = this.resolveRawMaterialSize(item.category, item.rawMaterialSize ?? undefined);
     item.status = this.computeStatus(Number(item.availableQuantity), Number(item.totalQuantity));
     return this.mapItem(await this.inventoryRepository.save(item));
   }
@@ -124,6 +126,21 @@ export class InventoryService {
     return multiplyMoney(item.availableQuantity, item.purchasePricePerUnit);
   }
 
+  private resolveRawMaterialSize(
+    category: InventoryCategory,
+    rawMaterialSize?: InventoryRawMaterialSize | null
+  ): InventoryRawMaterialSize | null {
+    if (category !== InventoryCategory.RAW_MATERIAL) {
+      return null;
+    }
+
+    if (!rawMaterialSize) {
+      throw new BadRequestException('Raw material size is required for raw material inventory items');
+    }
+
+    return rawMaterialSize;
+  }
+
   async assertAvailable(id: number, requestedQuantity: number): Promise<InventoryItem> {
     const item = await this.findEntityById(id);
     const availableQuantity = Number(item.availableQuantity);
@@ -141,6 +158,7 @@ export class InventoryService {
       name: item.name,
       category: item.category,
       unit: item.unit,
+      rawMaterialSize: item.rawMaterialSize,
       totalQuantity: Number(item.totalQuantity),
       availableQuantity: Number(item.availableQuantity),
       consumedQuantity: Number(item.consumedQuantity),

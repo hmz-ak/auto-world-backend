@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { ClientsService } from '../clients/clients.service';
 import { InventoryStatus, InventoryUnit } from '../inventory/constants/inventory.constants';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { InventoryService } from '../inventory/inventory.service';
@@ -17,6 +18,7 @@ function createInventoryItem(overrides: Partial<InventoryItem> = {}): InventoryI
     name: 'Steel Patti',
     category: 'RAW_MATERIAL' as InventoryItem['category'],
     unit: InventoryUnit.KG,
+    rawMaterialSize: null,
     totalQuantity: 100,
     availableQuantity: 100,
     consumedQuantity: 0,
@@ -87,6 +89,7 @@ describe('AuditService', () => {
         AuditService,
         { provide: DataSource, useValue: dataSource },
         { provide: InventoryService, useValue: inventoryService },
+        { provide: ClientsService, useValue: { findEntityById: jest.fn() } },
         { provide: PurchaseOrdersService, useValue: { findEntityById: jest.fn() } },
         { provide: getRepositoryToken(AuditLog), useValue: auditRepository }
       ]

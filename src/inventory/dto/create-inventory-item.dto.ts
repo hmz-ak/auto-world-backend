@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
-import { InventoryCategory, InventoryUnit } from '../constants/inventory.constants';
+import { InventoryCategory, InventoryRawMaterialSize, InventoryUnit } from '../constants/inventory.constants';
 
 export class CreateInventoryItemDto {
   @ApiProperty({ example: 'Steel Flat Bar 40mm', description: 'Inventory item name' })
@@ -16,6 +16,14 @@ export class CreateInventoryItemDto {
   @ApiProperty({ enum: InventoryUnit, description: 'Unit of measure' })
   @IsEnum(InventoryUnit)
   unit: InventoryUnit;
+
+  @ApiPropertyOptional({
+    enum: InventoryRawMaterialSize,
+    description: 'Required when category is RAW_MATERIAL'
+  })
+  @IsOptional()
+  @IsEnum(InventoryRawMaterialSize)
+  rawMaterialSize?: InventoryRawMaterialSize;
 
   @ApiProperty({ example: 100, description: 'Total quantity purchased' })
   @Type(() => Number)

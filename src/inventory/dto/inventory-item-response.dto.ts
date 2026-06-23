@@ -13,6 +13,9 @@ export class InventoryItemResponseDto {
   @ApiProperty({ example: 'KG', description: 'Unit of measure' })
   unit: string;
 
+  @ApiProperty({ example: '50_X_8', nullable: true, description: 'Raw material size, if applicable' })
+  rawMaterialSize: string | null;
+
   @ApiProperty({ example: 100, description: 'Total quantity ever added' })
   totalQuantity: number;
 

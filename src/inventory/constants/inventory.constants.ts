@@ -19,3 +19,10 @@ export enum InventoryStatus {
   LOW_STOCK = 'LOW_STOCK',
   OUT_OF_STOCK = 'OUT_OF_STOCK'
 }
+
+export enum InventoryRawMaterialSize {
+  SIZE_50_X_6 = '50_X_6',
+  SIZE_50_X_8 = '50_X_8',
+  SIZE_50_X_9 = '50_X_9',
+  SIZE_60_X_8 = '60_X_8'
+}

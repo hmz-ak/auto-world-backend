@@ -7,8 +7,16 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn
 } from 'typeorm';
+import { Client } from '../../clients/entities/client.entity';
 import { PurchaseOrder } from '../../purchase-orders/entities/purchase-order.entity';
 import { AuditLogItem } from './audit-log-item.entity';
+
+export interface ManufacturingItemSnapshot {
+  kamaniType: string;
+  quantity: number;
+  unitWeight: number;
+  totalWeight: number;
+}
 
 @Entity('audit_logs')
 export class AuditLog {
@@ -29,6 +37,15 @@ export class AuditLog {
 
   @ManyToOne(() => PurchaseOrder, { nullable: true })
   linkedOrder: PurchaseOrder | null;
+
+  @ManyToOne(() => Client, { nullable: true })
+  client: Client | null;
+
+  @Column({ name: 'manufacturing_items', type: 'jsonb', nullable: true })
+  manufacturingItems: ManufacturingItemSnapshot[] | null;
+
+  @Column({ name: 'total_weight_consumed', type: 'decimal', precision: 12, scale: 2, default: 0, nullable: false })
+  totalWeightConsumed: number;
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;

@@ -10,6 +10,9 @@ export class AuditLogItemResponseDto {
   @ApiProperty({ example: 'Steel Flat Bar 40mm', description: 'Inventory item name' })
   inventoryItemName: string;
 
+  @ApiProperty({ example: '50_X_8', nullable: true, description: 'Raw material size, if applicable' })
+  rawMaterialSize: string | null;
+
   @ApiProperty({ example: 'KG', description: 'Unit of measure' })
   unit: string;
 
