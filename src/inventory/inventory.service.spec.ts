@@ -111,5 +111,46 @@ describe('InventoryService', () => {
       );
       expect(inventoryRepository.save).not.toHaveBeenCalled();
     });
+
+    it('should update available quantity when explicitly edited', async () => {
+      inventoryRepository.findOne.mockResolvedValue(createInventoryItem());
+
+      const result = await service.update(1, { availableQuantity: 20000 });
+
+      expect(result.totalQuantity).toBe(50000);
+      expect(result.availableQuantity).toBe(20000);
+      expect(result.totalValue).toBe(4900000);
+    });
+
+    it('should respect explicit available quantity when total quantity is edited in the same request', async () => {
+      inventoryRepository.findOne.mockResolvedValue(
+        createInventoryItem({ totalQuantity: 50000, availableQuantity: 45000, consumedQuantity: 5000 })
+      );
+
+      const result = await service.update(1, { totalQuantity: 20000, availableQuantity: 12000 });
+
+      expect(result.totalQuantity).toBe(20000);
+      expect(result.availableQuantity).toBe(12000);
+      expect(result.consumedQuantity).toBe(5000);
+    });
+
+    it('should reject available quantity above total minus consumed quantity', async () => {
+      inventoryRepository.findOne.mockResolvedValue(
+        createInventoryItem({ totalQuantity: 50000, availableQuantity: 45000, consumedQuantity: 5000 })
+      );
+
+      await expect(service.update(1, { availableQuantity: 46000 })).rejects.toThrow(
+        'Available quantity cannot exceed total quantity minus consumed quantity'
+      );
+      expect(inventoryRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  it('should calculate total value from available quantity', () => {
+    const result = service.mapItem(
+      createInventoryItem({ totalQuantity: 50000, availableQuantity: 20000, purchasePricePerUnit: 245 })
+    );
+
+    expect(result.totalValue).toBe(4900000);
   });
 });

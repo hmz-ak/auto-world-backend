@@ -73,10 +73,19 @@ export class InventoryService {
   async update(id: number, dto: UpdateInventoryItemDto): Promise<InventoryItemResponseDto> {
     const item = await this.findEntityById(id);
     const isTotalQuantityEdited = dto.totalQuantity !== undefined;
+    const isAvailableQuantityEdited = dto.availableQuantity !== undefined;
     Object.assign(item, dto);
 
-    if (isTotalQuantityEdited) {
+    if (isTotalQuantityEdited && !isAvailableQuantityEdited) {
       item.availableQuantity = this.resolveAvailableQuantityAfterTotalEdit(
+        Number(item.totalQuantity),
+        Number(item.consumedQuantity)
+      );
+    }
+
+    if (isAvailableQuantityEdited) {
+      item.availableQuantity = this.resolveAvailableQuantityAfterManualEdit(
+        Number(item.availableQuantity),
         Number(item.totalQuantity),
         Number(item.consumedQuantity)
       );
@@ -143,6 +152,21 @@ export class InventoryService {
     }
 
     return toMoney(totalQuantity - consumedQuantity);
+  }
+
+  private resolveAvailableQuantityAfterManualEdit(
+    availableQuantity: number,
+    totalQuantity: number,
+    consumedQuantity: number
+  ): number {
+    const maxAvailableQuantity = toMoney(totalQuantity - consumedQuantity);
+    if (availableQuantity > maxAvailableQuantity) {
+      throw new BadRequestException(
+        `Available quantity cannot exceed total quantity minus consumed quantity (${maxAvailableQuantity})`
+      );
+    }
+
+    return toMoney(availableQuantity);
   }
 
   private resolveRawMaterialSize(
