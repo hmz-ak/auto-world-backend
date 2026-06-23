@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { AuditLogItemResponseDto } from './audit-log-item-response.dto';
 import { ManufacturingItemResponseDto } from './manufacturing-item-response.dto';
+import { ManufacturingProcessStepResponseDto } from './manufacturing-process-step-response.dto';
 
 export class AuditLogResponseDto {
   @ApiProperty({ example: 1, description: 'Audit log ID' })
@@ -35,6 +36,15 @@ export class AuditLogResponseDto {
 
   @ApiProperty({ example: 10325, description: 'Total raw material weight consumed in kg' })
   totalWeightConsumed: number;
+
+  @ApiProperty({ example: 'PENDING', description: 'Overall manufacturing status' })
+  manufacturingStatus: string;
+
+  @ApiProperty({ type: [ManufacturingProcessStepResponseDto], description: 'Manufacturing process sheet steps' })
+  processSteps: ManufacturingProcessStepResponseDto[];
+
+  @ApiProperty({ example: false, description: 'Whether all process phases are completed' })
+  isReadyForReceipt: boolean;
 
   @ApiProperty({ example: 'Day shift batch', nullable: true, description: 'Notes' })
   notes: string | null;

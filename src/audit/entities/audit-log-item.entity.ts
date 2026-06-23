@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { InventoryItem } from '../../inventory/entities/inventory-item.entity';
 import { AuditLog } from './audit-log.entity';
+import { ManufacturingProcessSheet } from './manufacturing-process-sheet.entity';
 
 @Entity('audit_log_items')
 export class AuditLogItem {
@@ -12,6 +13,12 @@ export class AuditLogItem {
 
   @ManyToOne(() => InventoryItem, { nullable: false })
   inventoryItem: InventoryItem;
+
+  @ManyToOne(() => ManufacturingProcessSheet, (processSheet) => processSheet.consumedItems, {
+    nullable: true,
+    onDelete: 'CASCADE'
+  })
+  processSheet: ManufacturingProcessSheet | null;
 
   @Column({ name: 'quantity_consumed', type: 'decimal', precision: 12, scale: 2, nullable: false })
   quantityConsumed: number;

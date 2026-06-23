@@ -1,7 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { AuditService } from '../audit/audit.service';
 import { ClientsService } from '../clients/clients.service';
+import { CLIENT_KAMANI_WEIGHTS } from '../common/constants/kamani.constants';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { multiplyMoney, toMoney } from '../common/utils/money.util';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
@@ -20,6 +22,8 @@ import { PurchaseOrder } from './entities/purchase-order.entity';
 export class PurchaseOrdersService {
   constructor(
     private readonly clientsService: ClientsService,
+    @Inject(forwardRef(() => AuditService))
+    private readonly auditService: AuditService,
     @InjectRepository(PurchaseOrder)
     private readonly ordersRepository: Repository<PurchaseOrder>,
     @InjectRepository(PurchaseOrderItem)
@@ -67,6 +71,7 @@ export class PurchaseOrdersService {
 
   async create(dto: CreatePurchaseOrderDto): Promise<PurchaseOrderResponseDto> {
     const client = await this.clientsService.findEntityById(dto.clientId);
+    this.validateClientKamaniItems(client.name, dto.lineItems);
     const order = this.ordersRepository.create({
       client,
       orderNumber: await this.generateOrderNumber(dto.orderDate),
@@ -86,6 +91,7 @@ export class PurchaseOrdersService {
     );
     order.totalAmount = toMoney(order.items.reduce((sum, item) => sum + Number(item.totalPrice), 0));
     const savedOrder = await this.ordersRepository.save(order);
+    await this.auditService.createManufacturingRecordFromPurchaseOrder(await this.findEntityById(savedOrder.id));
     return this.findOne(savedOrder.id);
   }
 
@@ -153,5 +159,15 @@ export class PurchaseOrdersService {
       .where('order.orderNumber LIKE :prefix', { prefix: `PO-${compactDate}-%` })
       .getCount();
     return `PO-${compactDate}-${String(count + 1).padStart(4, '0')}`;
+  }
+
+  private validateClientKamaniItems(clientName: string, lineItems: CreatePurchaseOrderDto['lineItems']): void {
+    const configuredItems = CLIENT_KAMANI_WEIGHTS[clientName] ?? [];
+    const configuredItemNames = new Set(configuredItems.map((item) => item.kamaniType));
+    for (const lineItem of lineItems) {
+      if (!configuredItemNames.has(lineItem.productName)) {
+        throw new BadRequestException(`${lineItem.productName} is not configured for ${clientName}`);
+      }
+    }
   }
 }
