@@ -126,8 +126,8 @@ export class ReceiptsService {
     const receipt = await this.findEntityById(id);
     return {
       ...this.mapReceipt(receipt),
-      companyName: 'Auto World',
-      companyAddress: 'Lahore, Pakistan',
+      companyName: this.configService.get<string>('COMPANY_NAME') ?? 'Auto World',
+      companyAddress: this.configService.get<string>('COMPANY_ADDRESS') ?? 'Lahore, Pakistan',
       companyPhone: this.configService.get<string>('COMPANY_PHONE') ?? ''
     };
   }
