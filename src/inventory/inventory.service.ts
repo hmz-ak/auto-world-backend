@@ -72,7 +72,16 @@ export class InventoryService {
 
   async update(id: number, dto: UpdateInventoryItemDto): Promise<InventoryItemResponseDto> {
     const item = await this.findEntityById(id);
+    const isTotalQuantityEdited = dto.totalQuantity !== undefined;
     Object.assign(item, dto);
+
+    if (isTotalQuantityEdited) {
+      item.availableQuantity = this.resolveAvailableQuantityAfterTotalEdit(
+        Number(item.totalQuantity),
+        Number(item.consumedQuantity)
+      );
+    }
+
     item.rawMaterialSize = this.resolveRawMaterialSize(item.category, item.rawMaterialSize ?? undefined);
     item.status = this.computeStatus(Number(item.availableQuantity), Number(item.totalQuantity));
     return this.mapItem(await this.inventoryRepository.save(item));
@@ -124,6 +133,16 @@ export class InventoryService {
 
   getTotalValue(item: InventoryItem): number {
     return multiplyMoney(item.availableQuantity, item.purchasePricePerUnit);
+  }
+
+  private resolveAvailableQuantityAfterTotalEdit(totalQuantity: number, consumedQuantity: number): number {
+    if (totalQuantity < consumedQuantity) {
+      throw new BadRequestException(
+        `Total quantity cannot be less than already consumed quantity (${consumedQuantity})`
+      );
+    }
+
+    return toMoney(totalQuantity - consumedQuantity);
   }
 
   private resolveRawMaterialSize(

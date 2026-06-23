@@ -1,25 +1,55 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { InventoryStatus } from './constants/inventory.constants';
+import {
+  InventoryCategory,
+  InventoryRawMaterialSize,
+  InventoryStatus,
+  InventoryUnit
+} from './constants/inventory.constants';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { InventoryService } from './inventory.service';
 
 describe('InventoryService', () => {
   let service: InventoryService;
+  let inventoryRepository: { findOne: jest.Mock; save: jest.Mock };
 
   beforeEach(async () => {
+    inventoryRepository = {
+      findOne: jest.fn(),
+      save: jest.fn((item) => Promise.resolve(item))
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InventoryService,
         {
           provide: getRepositoryToken(InventoryItem),
-          useValue: {}
+          useValue: inventoryRepository
         }
       ]
     }).compile();
 
     service = module.get(InventoryService);
   });
+
+  function createInventoryItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
+    return {
+      id: 1,
+      name: 'Steel Patti',
+      category: InventoryCategory.RAW_MATERIAL,
+      unit: InventoryUnit.KG,
+      rawMaterialSize: InventoryRawMaterialSize.SIZE_50_X_6,
+      totalQuantity: 50000,
+      availableQuantity: 50000,
+      consumedQuantity: 0,
+      purchasePricePerUnit: 245,
+      status: InventoryStatus.AVAILABLE,
+      notes: null,
+      createdAt: new Date('2026-06-23'),
+      updatedAt: new Date('2026-06-23'),
+      ...overrides
+    };
+  }
 
   describe('computeStatus', () => {
     it('should return OUT_OF_STOCK when availableQuantity is zero', () => {
@@ -40,6 +70,46 @@ describe('InventoryService', () => {
 
     it('should return LOW_STOCK when availableQuantity is just below 10 percent of totalQuantity', () => {
       expect(service.computeStatus(9.99, 100)).toBe(InventoryStatus.LOW_STOCK);
+    });
+  });
+
+  describe('update', () => {
+    it('should recalculate available quantity when total quantity is edited', async () => {
+      inventoryRepository.findOne.mockResolvedValue(createInventoryItem());
+
+      const result = await service.update(1, { totalQuantity: 20000 });
+
+      expect(inventoryRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          totalQuantity: 20000,
+          availableQuantity: 20000
+        })
+      );
+      expect(result.totalQuantity).toBe(20000);
+      expect(result.availableQuantity).toBe(20000);
+    });
+
+    it('should keep consumed quantity deducted when total quantity is edited after consumption', async () => {
+      inventoryRepository.findOne.mockResolvedValue(
+        createInventoryItem({ totalQuantity: 50000, availableQuantity: 45000, consumedQuantity: 5000 })
+      );
+
+      const result = await service.update(1, { totalQuantity: 20000 });
+
+      expect(result.totalQuantity).toBe(20000);
+      expect(result.availableQuantity).toBe(15000);
+      expect(result.consumedQuantity).toBe(5000);
+    });
+
+    it('should reject total quantity below already consumed quantity', async () => {
+      inventoryRepository.findOne.mockResolvedValue(
+        createInventoryItem({ totalQuantity: 50000, availableQuantity: 45000, consumedQuantity: 5000 })
+      );
+
+      await expect(service.update(1, { totalQuantity: 4000 })).rejects.toThrow(
+        'Total quantity cannot be less than already consumed quantity'
+      );
+      expect(inventoryRepository.save).not.toHaveBeenCalled();
     });
   });
 });
