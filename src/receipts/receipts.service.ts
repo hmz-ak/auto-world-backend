@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { ClientsService } from '../clients/clients.service';
 import { DeleteResponseDto } from '../common/dto/delete-response.dto';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
@@ -23,6 +23,7 @@ export class ReceiptsService {
     private readonly configService: ConfigService,
     private readonly clientsService: ClientsService,
     private readonly purchaseOrdersService: PurchaseOrdersService,
+    private readonly dataSource: DataSource,
     @InjectRepository(Receipt)
     private readonly receiptsRepository: Repository<Receipt>,
     @InjectRepository(ReceiptItem)
@@ -98,17 +99,29 @@ export class ReceiptsService {
       subtotal,
       taxAmount,
       totalAmount: toMoney(subtotal + taxAmount),
+      carRegistrationNumber: dto.carRegistrationNumber ?? null,
       notes: dto.notes ?? null,
       items
     });
-    const savedReceipt = await this.receiptsRepository.save(receipt);
+    const savedReceipt = await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(Receipt, receipt);
+      await this.upsertReceiptRevenue(saved, manager);
+      return saved;
+    });
     return this.findOne(savedReceipt.id);
   }
 
   async update(id: number, dto: UpdateReceiptDto): Promise<ReceiptResponseDto> {
     const receipt = await this.findEntityById(id);
     Object.assign(receipt, dto);
-    const savedReceipt = await this.receiptsRepository.save(receipt);
+    if (typeof dto.taxAmount === 'number') {
+      receipt.totalAmount = toMoney(Number(receipt.subtotal) + Number(dto.taxAmount));
+    }
+    const savedReceipt = await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(Receipt, receipt);
+      await this.upsertReceiptRevenue(saved, manager);
+      return saved;
+    });
     return this.findOne(savedReceipt.id);
   }
 
@@ -128,7 +141,7 @@ export class ReceiptsService {
       ...this.mapReceipt(receipt),
       companyName: this.configService.get<string>('COMPANY_NAME') ?? 'Auto World',
       companyAddress: this.configService.get<string>('COMPANY_ADDRESS') ?? 'Lahore, Pakistan',
-      companyPhone: this.configService.get<string>('COMPANY_PHONE') ?? ''
+      companyPhone: '03334292983'
     };
   }
 
@@ -143,6 +156,7 @@ export class ReceiptsService {
       subtotal: Number(receipt.subtotal),
       taxAmount: Number(receipt.taxAmount),
       totalAmount: Number(receipt.totalAmount),
+      carRegistrationNumber: receipt.carRegistrationNumber,
       notes: receipt.notes,
       items: (receipt.items ?? []).map((item) => ({
         id: item.id,
@@ -177,5 +191,27 @@ export class ReceiptsService {
       .where('receipt.receiptNumber LIKE :prefix', { prefix: `REC-${compactDate}-%` })
       .getCount();
     return `REC-${compactDate}-${String(count + 1).padStart(4, '0')}`;
+  }
+
+  private async upsertReceiptRevenue(receipt: Receipt, manager: EntityManager): Promise<void> {
+    const revenueRepository = manager.getRepository(RevenueEntry);
+    const existingEntry = await revenueRepository.findOne({
+      where: { receipt: { id: receipt.id } },
+      relations: { receipt: true, client: true }
+    });
+    const revenueData = {
+      client: receipt.client,
+      receipt,
+      amount: toMoney(receipt.totalAmount),
+      description: `Receipt ${receipt.receiptNumber} from ${receipt.client.name}`,
+      revenueDate: receipt.issueDate
+    };
+
+    if (existingEntry) {
+      await revenueRepository.save(Object.assign(existingEntry, revenueData));
+      return;
+    }
+
+    await revenueRepository.save(revenueRepository.create(revenueData));
   }
 }

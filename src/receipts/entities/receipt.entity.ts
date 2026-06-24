@@ -39,6 +39,9 @@ export class Receipt {
   @Column({ name: 'total_amount', type: 'decimal', precision: 12, scale: 2, nullable: false })
   totalAmount: number;
 
+  @Column({ name: 'car_registration_number', type: 'varchar', length: 50, nullable: true })
+  carRegistrationNumber: string | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

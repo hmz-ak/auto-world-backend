@@ -26,6 +26,11 @@ export class CreateReceiptDto {
   @Min(0)
   taxAmount?: number;
 
+  @ApiPropertyOptional({ example: 'LES-7986', description: 'Vehicle or car registration number' })
+  @IsOptional()
+  @IsString()
+  carRegistrationNumber?: string;
+
   @ApiPropertyOptional({ example: 'Paid in cash', description: 'Receipt notes' })
   @IsOptional()
   @IsString()

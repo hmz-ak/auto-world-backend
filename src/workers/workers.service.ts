@@ -5,6 +5,8 @@ import { formatDateOnly, getSaturdayWeekNumber, isSaturday } from '../common/uti
 import { toMoney } from '../common/utils/money.util';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
+import { ExpenseCategory } from '../expenses/constants/expense.constants';
+import { ExpensesService } from '../expenses/expenses.service';
 import { AdvancePayment } from './entities/advance-payment.entity';
 import { SalaryPayment } from './entities/salary-payment.entity';
 import { Worker } from './entities/worker.entity';
@@ -22,6 +24,7 @@ import { WorkerResponseDto } from './dto/worker-response.dto';
 export class WorkersService {
   constructor(
     private readonly dataSource: DataSource,
+    private readonly expensesService: ExpensesService,
     @InjectRepository(Worker)
     private readonly workersRepository: Repository<Worker>,
     @InjectRepository(AdvancePayment)
@@ -133,13 +136,19 @@ export class WorkersService {
 
   async processWorkerSalary(workerId: number, dto: ProcessSalaryDto): Promise<SalaryProcessResultDto> {
     const worker = await this.findEntityById(workerId);
-    return this.processSalaryBatch([worker], dto);
+    return this.processSalaryBatch([worker], { ...dto, force: true });
   }
 
   async getSalaryPreview(): Promise<SalaryPreviewResponseDto> {
     const workers = await this.workersRepository.find({ where: { isActive: true } });
     const today = new Date();
     const paymentDate = this.getCurrentOrUpcomingSaturday(today);
+    const paymentDateText = formatDateOnly(paymentDate);
+    const processedPayments = await this.salaryPaymentsRepository.find({
+      where: { paymentDate: paymentDateText },
+      relations: { worker: true }
+    });
+    const processedWorkerIds = new Set(processedPayments.map((payment) => payment.worker.id));
     const previewWorkers = workers.map((worker) => {
       const weeklySalary = toMoney(worker.weeklySalary);
       const pendingAdvance = toMoney(worker.pendingAdvance);
@@ -148,7 +157,8 @@ export class WorkersService {
         workerName: worker.name,
         weeklySalary,
         pendingAdvance,
-        netPayment: Math.max(0, toMoney(weeklySalary - pendingAdvance))
+        netPayment: Math.max(0, toMoney(weeklySalary - pendingAdvance)),
+        isProcessedForWeek: processedWorkerIds.has(worker.id)
       };
     });
     const totalGross = toMoney(previewWorkers.reduce((sum, worker) => sum + worker.weeklySalary, 0));
@@ -158,7 +168,7 @@ export class WorkersService {
     const totalNet = toMoney(previewWorkers.reduce((sum, worker) => sum + worker.netPayment, 0));
 
     return {
-      paymentDate: formatDateOnly(paymentDate) as unknown as Date,
+      paymentDate: paymentDateText as unknown as Date,
       weekNumber: getSaturdayWeekNumber(paymentDate),
       isTodaySaturday: isSaturday(today),
       workers: previewWorkers,
@@ -173,9 +183,34 @@ export class WorkersService {
     if (!dto.force && !isSaturday(today)) {
       throw new BadRequestException('Salary can only be processed on Saturdays.');
     }
+    if (typeof dto.grossAmount === 'number' && dto.grossAmount <= 0) {
+      throw new BadRequestException('Salary amount must be greater than zero.');
+    }
 
-    const paymentDate = formatDateOnly(today);
-    const weekNumber = getSaturdayWeekNumber(today);
+    const effectivePaymentDate = dto.paymentDate ? this.parseDateOnly(dto.paymentDate) : today;
+    const paymentDate = dto.paymentDate ?? formatDateOnly(effectivePaymentDate);
+    const weekNumber = getSaturdayWeekNumber(effectivePaymentDate);
+    const processedPayments = await this.salaryPaymentsRepository.find({
+      where: { paymentDate },
+      relations: { worker: true }
+    });
+    const processedWorkerIds = new Set(processedPayments.map((payment) => payment.worker.id));
+    if (workers.length === 1 && processedWorkerIds.has(workers[0].id)) {
+      throw new BadRequestException(`${workers[0].name} salary is already processed for ${paymentDate}.`);
+    }
+    const workersToProcess = workers.filter((worker) => !processedWorkerIds.has(worker.id));
+    if (workersToProcess.length === 0) {
+      return {
+        processed: 0,
+        totalGrossPaid: 0,
+        totalAdvanceDeducted: 0,
+        totalNetPaid: 0,
+        paymentDate: paymentDate as unknown as Date,
+        payments: []
+      };
+    }
+    const individualGrossAmount =
+      workers.length === 1 && typeof dto.grossAmount === 'number' ? dto.grossAmount : undefined;
 
     return this.dataSource.transaction(async (manager) => {
       let totalGrossPaid = 0;
@@ -183,8 +218,8 @@ export class WorkersService {
       let totalAdvanceDeducted = 0;
       const payments: SalaryPaymentResponseDto[] = [];
 
-      for (const worker of workers) {
-        const grossAmount = toMoney(worker.weeklySalary);
+      for (const worker of workersToProcess) {
+        const grossAmount = toMoney(individualGrossAmount ?? worker.weeklySalary);
         const pendingAdvance = toMoney(worker.pendingAdvance);
         const advanceDeducted = Math.min(grossAmount, pendingAdvance);
         const netAmount = toMoney(grossAmount - advanceDeducted);
@@ -210,8 +245,21 @@ export class WorkersService {
         totalAdvanceDeducted = toMoney(totalAdvanceDeducted + advanceDeducted);
       }
 
+      if (totalGrossPaid > 0) {
+        await this.expensesService.createSystemExpense(
+          {
+            category: ExpenseCategory.WAGES,
+            description: `Worker wages processed for week ${weekNumber}`,
+            amount: totalGrossPaid,
+            expenseDate: paymentDate,
+            notes: `Auto-generated from salary processing. Net paid: ${toMoney(totalNetPaid)}. Advance deducted: ${toMoney(totalAdvanceDeducted)}. Workers processed: ${workersToProcess.length}.`
+          },
+          manager
+        );
+      }
+
       return {
-        processed: workers.length,
+        processed: workersToProcess.length,
         totalGrossPaid,
         totalAdvanceDeducted,
         totalNetPaid,
@@ -226,6 +274,11 @@ export class WorkersService {
     const daysUntilSaturday = (6 - candidate.getDay() + 7) % 7;
     candidate.setDate(candidate.getDate() + daysUntilSaturday);
     return candidate;
+  }
+
+  private parseDateOnly(date: string): Date {
+    const [year, month, day] = date.split('-').map(Number);
+    return new Date(year, month - 1, day, 12);
   }
 
   private mapWorker(worker: Worker): WorkerResponseDto {

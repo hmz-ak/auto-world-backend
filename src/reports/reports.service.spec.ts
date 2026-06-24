@@ -21,6 +21,9 @@ describe('ReportsService', () => {
   let service: ReportsService;
   let expensesService: { sumBetween: jest.Mock; summary: jest.Mock };
   let revenueService: { sumBetween: jest.Mock };
+  let workersRepository: ReturnType<typeof createRepositoryMock>;
+  let inventoryRepository: ReturnType<typeof createRepositoryMock>;
+  let ordersRepository: ReturnType<typeof createRepositoryMock>;
 
   beforeEach(async () => {
     expensesService = {
@@ -30,6 +33,9 @@ describe('ReportsService', () => {
     revenueService = {
       sumBetween: jest.fn()
     };
+    workersRepository = createRepositoryMock();
+    inventoryRepository = createRepositoryMock();
+    ordersRepository = createRepositoryMock();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -38,13 +44,17 @@ describe('ReportsService', () => {
         { provide: RevenueService, useValue: revenueService },
         { provide: getRepositoryToken(Expense), useValue: createRepositoryMock() },
         { provide: getRepositoryToken(RevenueEntry), useValue: createRepositoryMock() },
-        { provide: getRepositoryToken(Worker), useValue: createRepositoryMock() },
-        { provide: getRepositoryToken(InventoryItem), useValue: createRepositoryMock() },
-        { provide: getRepositoryToken(PurchaseOrder), useValue: createRepositoryMock() }
+        { provide: getRepositoryToken(Worker), useValue: workersRepository },
+        { provide: getRepositoryToken(InventoryItem), useValue: inventoryRepository },
+        { provide: getRepositoryToken(PurchaseOrder), useValue: ordersRepository }
       ]
     }).compile();
 
     service = module.get(ReportsService);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('should calculate grossProfit as totalRevenue minus totalRawMaterialCost', async () => {
@@ -123,5 +133,34 @@ describe('ReportsService', () => {
 
     expect(report.grossProfit).toBe(50000);
     expect(report.netProfit).toBe(-150000);
+  });
+
+  it('should exclude workers already paid for this Saturday from dashboard salary due', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 5, 24, 12));
+    revenueService.sumBetween.mockResolvedValue(100000);
+    expensesService.sumBetween.mockResolvedValue(25000);
+    workersRepository.count.mockResolvedValue(3);
+    ordersRepository.count.mockResolvedValue(2);
+    inventoryRepository.count.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+    const salaryQuery = {
+      leftJoin: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ total: '24000' })
+    };
+    workersRepository.createQueryBuilder.mockReturnValue(salaryQuery);
+
+    const summary = await service.dashboardSummary();
+
+    expect(summary.totalSalaryDueThisSaturday).toBe(24000);
+    expect(salaryQuery.leftJoin).toHaveBeenCalledWith(
+      'worker.salaryPayments',
+      'salaryPayment',
+      'salaryPayment.paymentDate = :salaryPaymentDate',
+      { salaryPaymentDate: '2026-06-27' }
+    );
+    expect(salaryQuery.andWhere).toHaveBeenCalledWith('salaryPayment.id IS NULL');
   });
 });

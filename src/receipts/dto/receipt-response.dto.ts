@@ -30,6 +30,9 @@ export class ReceiptResponseDto {
   @ApiProperty({ example: 35000, description: 'Total amount' })
   totalAmount: number;
 
+  @ApiProperty({ example: 'LES-7986', nullable: true, description: 'Vehicle or car registration number' })
+  carRegistrationNumber: string | null;
+
   @ApiProperty({ example: 'Paid in cash', nullable: true, description: 'Notes' })
   notes: string | null;
 

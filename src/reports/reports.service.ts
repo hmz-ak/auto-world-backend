@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { endOfCurrentMonth, startOfCurrentMonth } from '../common/utils/date.util';
+import { endOfCurrentMonth, formatDateOnly, startOfCurrentMonth } from '../common/utils/date.util';
 import { toMoney } from '../common/utils/money.util';
 import { ExpenseCategory } from '../expenses/constants/expense.constants';
 import { Expense } from '../expenses/entities/expense.entity';
@@ -71,10 +71,15 @@ export class ReportsService {
     const pendingOrders = await this.ordersRepository.count({ where: { status: PurchaseOrderStatus.PENDING } });
     const inventoryItemsLowStock = await this.inventoryRepository.count({ where: { status: InventoryStatus.LOW_STOCK } });
     const inventoryItemsOutOfStock = await this.inventoryRepository.count({ where: { status: InventoryStatus.OUT_OF_STOCK } });
+    const salaryPaymentDate = formatDateOnly(this.getCurrentOrUpcomingSaturday(new Date()));
     const salaryRow = await this.workersRepository
       .createQueryBuilder('worker')
+      .leftJoin('worker.salaryPayments', 'salaryPayment', 'salaryPayment.paymentDate = :salaryPaymentDate', {
+        salaryPaymentDate
+      })
       .select('COALESCE(SUM(worker.weeklySalary), 0)', 'total')
       .where('worker.isActive = true')
+      .andWhere('salaryPayment.id IS NULL')
       .getRawOne<{ total: string }>();
 
     return {
@@ -130,5 +135,12 @@ export class ReportsService {
       month: 'short',
       year: 'numeric'
     });
+  }
+
+  private getCurrentOrUpcomingSaturday(date: Date): Date {
+    const candidate = new Date(date);
+    const daysUntilSaturday = (6 - candidate.getDay() + 7) % 7;
+    candidate.setDate(candidate.getDate() + daysUntilSaturday);
+    return candidate;
   }
 }

@@ -8,8 +8,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DeleteResponseDto } from '../common/dto/delete-response.dto';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
+import { formatDateOnly } from '../common/utils/date.util';
 import { multiplyMoney, toMoney } from '../common/utils/money.util';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
+import { ExpenseCategory } from '../expenses/constants/expense.constants';
+import { ExpensesService } from '../expenses/expenses.service';
 import { InventoryCategory, InventoryRawMaterialSize, InventoryStatus } from './constants/inventory.constants';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { InventoryItemResponseDto } from './dto/inventory-item-response.dto';
@@ -21,6 +24,7 @@ import { InventoryItem } from './entities/inventory-item.entity';
 @Injectable()
 export class InventoryService {
   constructor(
+    private readonly expensesService: ExpensesService,
     @InjectRepository(InventoryItem)
     private readonly inventoryRepository: Repository<InventoryItem>
   ) {}
@@ -67,7 +71,20 @@ export class InventoryService {
       consumedQuantity: 0,
       status: this.computeStatus(dto.totalQuantity, dto.totalQuantity)
     });
-    return this.mapItem(await this.inventoryRepository.save(item));
+    const savedItem = await this.inventoryRepository.save(item);
+    const totalPurchaseCost = multiplyMoney(savedItem.totalQuantity, savedItem.purchasePricePerUnit);
+
+    if (totalPurchaseCost > 0) {
+      await this.expensesService.createSystemExpense({
+        category: this.getInventoryExpenseCategory(savedItem.category),
+        description: `Inventory purchase: ${savedItem.name}`,
+        amount: totalPurchaseCost,
+        expenseDate: formatDateOnly(new Date()),
+        notes: `Auto-generated from inventory item #${savedItem.id}. Quantity: ${Number(savedItem.totalQuantity)} ${savedItem.unit}. Unit price: ${Number(savedItem.purchasePricePerUnit)}.`
+      });
+    }
+
+    return this.mapItem(savedItem);
   }
 
   async update(id: number, dto: UpdateInventoryItemDto): Promise<InventoryItemResponseDto> {
@@ -142,6 +159,10 @@ export class InventoryService {
 
   getTotalValue(item: InventoryItem): number {
     return multiplyMoney(item.availableQuantity, item.purchasePricePerUnit);
+  }
+
+  private getInventoryExpenseCategory(category: InventoryCategory): ExpenseCategory {
+    return category === InventoryCategory.RAW_MATERIAL ? ExpenseCategory.RAW_MATERIAL : ExpenseCategory.OTHER;
   }
 
   private resolveAvailableQuantityAfterTotalEdit(totalQuantity: number, consumedQuantity: number): number {

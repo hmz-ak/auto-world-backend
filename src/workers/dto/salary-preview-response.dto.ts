@@ -15,6 +15,9 @@ export class SalaryPreviewItemDto {
 
   @ApiProperty({ example: 10000, description: 'Net payment preview' })
   netPayment: number;
+
+  @ApiProperty({ example: false, description: 'Whether salary has already been processed for this payment date' })
+  isProcessedForWeek: boolean;
 }
 
 export class SalaryPreviewResponseDto {

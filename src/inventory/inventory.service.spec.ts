@@ -1,5 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { ExpenseCategory } from '../expenses/constants/expense.constants';
+import { ExpensesService } from '../expenses/expenses.service';
 import {
   InventoryCategory,
   InventoryRawMaterialSize,
@@ -11,17 +13,21 @@ import { InventoryService } from './inventory.service';
 
 describe('InventoryService', () => {
   let service: InventoryService;
-  let inventoryRepository: { findOne: jest.Mock; save: jest.Mock };
+  let inventoryRepository: { create: jest.Mock; findOne: jest.Mock; save: jest.Mock };
+  let expensesService: { createSystemExpense: jest.Mock };
 
   beforeEach(async () => {
     inventoryRepository = {
+      create: jest.fn((item) => item),
       findOne: jest.fn(),
       save: jest.fn((item) => Promise.resolve(item))
     };
+    expensesService = { createSystemExpense: jest.fn(() => Promise.resolve()) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InventoryService,
+        { provide: ExpensesService, useValue: expensesService },
         {
           provide: getRepositoryToken(InventoryItem),
           useValue: inventoryRepository
@@ -50,6 +56,34 @@ describe('InventoryService', () => {
       ...overrides
     };
   }
+
+  describe('create', () => {
+    it('should create a raw material expense when inventory is added', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-06-24T09:00:00.000Z'));
+
+      await service.create({
+        name: 'Steel Patti',
+        category: InventoryCategory.RAW_MATERIAL,
+        unit: InventoryUnit.KG,
+        rawMaterialSize: InventoryRawMaterialSize.SIZE_50_X_6,
+        totalQuantity: 100,
+        purchasePricePerUnit: 250,
+        notes: 'Fresh stock'
+      });
+
+      expect(expensesService.createSystemExpense).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: ExpenseCategory.RAW_MATERIAL,
+          description: 'Inventory purchase: Steel Patti',
+          amount: 25000,
+          expenseDate: '2026-06-24'
+        })
+      );
+
+      jest.useRealTimers();
+    });
+  });
 
   describe('computeStatus', () => {
     it('should return OUT_OF_STOCK when availableQuantity is zero', () => {

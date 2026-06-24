@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { DeleteResponseDto } from '../common/dto/delete-response.dto';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { toMoney } from '../common/utils/money.util';
@@ -49,6 +49,21 @@ export class ExpensesService {
 
   async create(dto: CreateExpenseDto): Promise<ExpenseResponseDto> {
     return this.mapExpense(await this.expensesRepository.save(this.expensesRepository.create(dto)));
+  }
+
+  async createSystemExpense(dto: CreateExpenseDto, manager?: EntityManager): Promise<ExpenseResponseDto> {
+    const data = {
+      ...dto,
+      amount: toMoney(dto.amount),
+      notes: dto.notes ?? null
+    };
+
+    if (manager) {
+      const expense = manager.create(Expense, data);
+      return this.mapExpense(await manager.save(Expense, expense));
+    }
+
+    return this.mapExpense(await this.expensesRepository.save(this.expensesRepository.create(data)));
   }
 
   async update(id: number, dto: UpdateExpenseDto): Promise<ExpenseResponseDto> {
