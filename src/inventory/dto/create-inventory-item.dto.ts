@@ -1,14 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
-import { InventoryCategory, InventoryRawMaterialSize, InventoryUnit } from '../constants/inventory.constants';
+import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  InventoryCategory,
+  InventoryRawMaterialGrade,
+  InventoryRawMaterialSize,
+  InventorySubCategory,
+  InventoryUnit
+} from '../constants/inventory.constants';
 
 export class CreateInventoryItemDto {
-  @ApiProperty({ example: 'Steel Flat Bar 40mm', description: 'Inventory item name' })
-  @IsString()
-  @MaxLength(150)
-  name: string;
-
   @ApiProperty({ enum: InventoryCategory, description: 'Inventory category' })
   @IsEnum(InventoryCategory)
   category: InventoryCategory;
@@ -18,12 +19,28 @@ export class CreateInventoryItemDto {
   unit: InventoryUnit;
 
   @ApiPropertyOptional({
+    enum: InventorySubCategory,
+    description: 'Inventory subcategory under the selected category'
+  })
+  @IsOptional()
+  @IsEnum(InventorySubCategory)
+  subCategory?: InventorySubCategory;
+
+  @ApiPropertyOptional({
     enum: InventoryRawMaterialSize,
     description: 'Required when category is RAW_MATERIAL'
   })
   @IsOptional()
   @IsEnum(InventoryRawMaterialSize)
   rawMaterialSize?: InventoryRawMaterialSize;
+
+  @ApiPropertyOptional({
+    enum: InventoryRawMaterialGrade,
+    description: 'Spring steel grade when category is RAW_MATERIAL'
+  })
+  @IsOptional()
+  @IsEnum(InventoryRawMaterialGrade)
+  rawMaterialGrade?: InventoryRawMaterialGrade;
 
   @ApiProperty({ example: 100, description: 'Total quantity purchased' })
   @Type(() => Number)

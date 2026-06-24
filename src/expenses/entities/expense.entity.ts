@@ -17,6 +17,9 @@ export class Expense {
   @Column({ type: 'enum', enum: ExpenseCategory, nullable: false })
   category: ExpenseCategory;
 
+  @Column({ name: 'sub_category', type: 'varchar', length: 80, nullable: true })
+  subCategory: string | null;
+
   @Column({ type: 'varchar', length: 255, nullable: false })
   description: string;
 

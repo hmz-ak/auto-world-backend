@@ -8,8 +8,10 @@ import {
 } from 'typeorm';
 import {
   InventoryCategory,
+  InventoryRawMaterialGrade,
   InventoryRawMaterialSize,
   InventoryStatus,
+  InventorySubCategory,
   InventoryUnit
 } from '../constants/inventory.constants';
 
@@ -17,9 +19,6 @@ import {
 export class InventoryItem {
   @PrimaryGeneratedColumn()
   id: number;
-
-  @Column({ type: 'varchar', length: 150, nullable: false })
-  name: string;
 
   @Index()
   @Column({ type: 'enum', enum: InventoryCategory, nullable: false })
@@ -29,12 +28,28 @@ export class InventoryItem {
   unit: InventoryUnit;
 
   @Column({
+    name: 'sub_category',
+    type: 'varchar',
+    length: 80,
+    nullable: true
+  })
+  subCategory: InventorySubCategory | null;
+
+  @Column({
     name: 'raw_material_size',
     type: 'enum',
     enum: InventoryRawMaterialSize,
     nullable: true
   })
   rawMaterialSize: InventoryRawMaterialSize | null;
+
+  @Column({
+    name: 'raw_material_grade',
+    type: 'varchar',
+    length: 30,
+    nullable: true
+  })
+  rawMaterialGrade: InventoryRawMaterialGrade | null;
 
   @Column({ name: 'total_quantity', type: 'decimal', precision: 12, scale: 2, nullable: false })
   totalQuantity: number;

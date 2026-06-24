@@ -48,13 +48,16 @@ export class ExpensesService {
   }
 
   async create(dto: CreateExpenseDto): Promise<ExpenseResponseDto> {
-    return this.mapExpense(await this.expensesRepository.save(this.expensesRepository.create(dto)));
+    return this.mapExpense(
+      await this.expensesRepository.save(this.expensesRepository.create({ ...dto, subCategory: dto.subCategory ?? null }))
+    );
   }
 
   async createSystemExpense(dto: CreateExpenseDto, manager?: EntityManager): Promise<ExpenseResponseDto> {
     const data = {
       ...dto,
       amount: toMoney(dto.amount),
+      subCategory: dto.subCategory ?? null,
       notes: dto.notes ?? null
     };
 
@@ -104,6 +107,65 @@ export class ExpensesService {
     return toMoney(row?.total ?? 0);
   }
 
+  async sumExcludingCategories(
+    startDate?: string,
+    endDate?: string,
+    excludedCategories: ExpenseCategory[] = []
+  ): Promise<number> {
+    const builder = this.expensesRepository
+      .createQueryBuilder('expense')
+      .select('COALESCE(SUM(expense.amount), 0)', 'total');
+
+    this.applyFilters(builder, { startDate, endDate, page: 1, limit: 20 });
+
+    if (excludedCategories.length > 0) {
+      builder.andWhere('expense.category NOT IN (:...excludedCategories)', { excludedCategories });
+    }
+
+    const row = await builder.getRawOne<{ total: string }>();
+    return toMoney(row?.total ?? 0);
+  }
+
+  async sumForCategories(
+    startDate?: string,
+    endDate?: string,
+    includedCategories: ExpenseCategory[] = []
+  ): Promise<number> {
+    const builder = this.expensesRepository
+      .createQueryBuilder('expense')
+      .select('COALESCE(SUM(expense.amount), 0)', 'total');
+
+    this.applyFilters(builder, { startDate, endDate, page: 1, limit: 20 });
+
+    if (includedCategories.length > 0) {
+      builder.andWhere('expense.category IN (:...includedCategories)', { includedCategories });
+    }
+
+    const row = await builder.getRawOne<{ total: string }>();
+    return toMoney(row?.total ?? 0);
+  }
+
+  async sumBySubCategory(
+    startDate?: string,
+    endDate?: string,
+    includedCategories: ExpenseCategory[] = []
+  ): Promise<Array<{ category: string; total: number }>> {
+    const builder = this.expensesRepository
+      .createQueryBuilder('expense')
+      .select("COALESCE(expense.sub_category, expense.category::text)", 'category')
+      .addSelect('COALESCE(SUM(expense.amount), 0)', 'total')
+      .groupBy("COALESCE(expense.sub_category, expense.category::text)");
+
+    this.applyFilters(builder, { startDate, endDate, page: 1, limit: 20 });
+
+    if (includedCategories.length > 0) {
+      builder.andWhere('expense.category IN (:...includedCategories)', { includedCategories });
+    }
+
+    const rows = await builder.getRawMany<{ category: string; total: string }>();
+    return rows.map((row) => ({ category: row.category, total: toMoney(row.total) }));
+  }
+
   private applyFilters(
     builder: ReturnType<Repository<Expense>['createQueryBuilder']>,
     query: Partial<ExpenseQueryDto>
@@ -123,6 +185,7 @@ export class ExpensesService {
     return {
       id: expense.id,
       category: expense.category,
+      subCategory: expense.subCategory,
       description: expense.description,
       amount: Number(expense.amount),
       expenseDate: expense.expenseDate as unknown as Date,

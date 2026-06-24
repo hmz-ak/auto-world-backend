@@ -13,13 +13,21 @@ import { multiplyMoney, toMoney } from '../common/utils/money.util';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
 import { ExpenseCategory } from '../expenses/constants/expense.constants';
 import { ExpensesService } from '../expenses/expenses.service';
-import { InventoryCategory, InventoryRawMaterialSize, InventoryStatus } from './constants/inventory.constants';
+import {
+  INVENTORY_SUB_CATEGORIES_BY_CATEGORY,
+  InventoryCategory,
+  InventoryRawMaterialGrade,
+  InventoryRawMaterialSize,
+  InventoryStatus,
+  InventorySubCategory
+} from './constants/inventory.constants';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { InventoryItemResponseDto } from './dto/inventory-item-response.dto';
 import { InventoryQueryDto } from './dto/inventory-query.dto';
 import { InventorySummaryResponseDto } from './dto/inventory-summary-response.dto';
 import { UpdateInventoryItemDto } from './dto/update-inventory-item.dto';
 import { InventoryItem } from './entities/inventory-item.entity';
+import { buildInventoryItemLabel } from './utils/inventory-label.util';
 
 @Injectable()
 export class InventoryService {
@@ -66,7 +74,9 @@ export class InventoryService {
   async create(dto: CreateInventoryItemDto): Promise<InventoryItemResponseDto> {
     const item = this.inventoryRepository.create({
       ...dto,
+      subCategory: this.resolveSubCategory(dto.category, dto.subCategory),
       rawMaterialSize: this.resolveRawMaterialSize(dto.category, dto.rawMaterialSize),
+      rawMaterialGrade: this.resolveRawMaterialGrade(dto.category, dto.rawMaterialGrade),
       availableQuantity: dto.totalQuantity,
       consumedQuantity: 0,
       status: this.computeStatus(dto.totalQuantity, dto.totalQuantity)
@@ -77,7 +87,8 @@ export class InventoryService {
     if (totalPurchaseCost > 0) {
       await this.expensesService.createSystemExpense({
         category: this.getInventoryExpenseCategory(savedItem.category),
-        description: `Inventory purchase: ${savedItem.name}`,
+        subCategory: savedItem.subCategory ?? undefined,
+        description: `Inventory purchase: ${buildInventoryItemLabel(savedItem)}`,
         amount: totalPurchaseCost,
         expenseDate: formatDateOnly(new Date()),
         notes: `Auto-generated from inventory item #${savedItem.id}. Quantity: ${Number(savedItem.totalQuantity)} ${savedItem.unit}. Unit price: ${Number(savedItem.purchasePricePerUnit)}.`
@@ -108,7 +119,9 @@ export class InventoryService {
       );
     }
 
+    item.subCategory = this.resolveSubCategory(item.category, item.subCategory ?? undefined);
     item.rawMaterialSize = this.resolveRawMaterialSize(item.category, item.rawMaterialSize ?? undefined);
+    item.rawMaterialGrade = this.resolveRawMaterialGrade(item.category, item.rawMaterialGrade ?? undefined);
     item.status = this.computeStatus(Number(item.availableQuantity), Number(item.totalQuantity));
     return this.mapItem(await this.inventoryRepository.save(item));
   }
@@ -126,19 +139,26 @@ export class InventoryService {
     const rows = await this.inventoryRepository
       .createQueryBuilder('item')
       .select('COUNT(item.id)', 'totalItems')
-      .addSelect('COALESCE(SUM(item.availableQuantity * item.purchasePricePerUnit), 0)', 'totalValue')
+      .addSelect('COALESCE(SUM(item.availableQuantity * item.purchasePricePerUnit), 0)', 'remainingMaterialValue')
+      .addSelect('COALESCE(SUM(item.consumedQuantity * item.purchasePricePerUnit), 0)', 'consumedMaterialValue')
       .addSelect("SUM(CASE WHEN item.status = 'LOW_STOCK' THEN 1 ELSE 0 END)", 'lowStockCount')
       .addSelect("SUM(CASE WHEN item.status = 'OUT_OF_STOCK' THEN 1 ELSE 0 END)", 'outOfStockCount')
       .getRawOne<{
         totalItems: string;
-        totalValue: string;
+        remainingMaterialValue: string;
+        consumedMaterialValue: string;
         lowStockCount: string;
         outOfStockCount: string;
       }>();
 
+    const remainingMaterialValue = toMoney(rows?.remainingMaterialValue ?? 0);
+    const consumedMaterialValue = toMoney(rows?.consumedMaterialValue ?? 0);
+
     return {
       totalItems: Number(rows?.totalItems ?? 0),
-      totalInventoryValue: toMoney(rows?.totalValue ?? 0),
+      totalInventoryValue: remainingMaterialValue,
+      remainingMaterialValue,
+      consumedMaterialValue,
       lowStockCount: Number(rows?.lowStockCount ?? 0),
       outOfStockCount: Number(rows?.outOfStockCount ?? 0)
     };
@@ -158,11 +178,26 @@ export class InventoryService {
   }
 
   getTotalValue(item: InventoryItem): number {
+    return this.getRemainingMaterialValue(item);
+  }
+
+  getRemainingMaterialValue(item: InventoryItem): number {
     return multiplyMoney(item.availableQuantity, item.purchasePricePerUnit);
   }
 
+  getConsumedMaterialValue(item: InventoryItem): number {
+    return multiplyMoney(item.consumedQuantity, item.purchasePricePerUnit);
+  }
+
   private getInventoryExpenseCategory(category: InventoryCategory): ExpenseCategory {
-    return category === InventoryCategory.RAW_MATERIAL ? ExpenseCategory.RAW_MATERIAL : ExpenseCategory.OTHER;
+    const rawMaterialInputCategories = [
+      InventoryCategory.RAW_MATERIAL,
+      InventoryCategory.CONSUMABLE,
+      InventoryCategory.HARDWARE,
+      InventoryCategory.PAINT
+    ];
+
+    return rawMaterialInputCategories.includes(category) ? ExpenseCategory.RAW_MATERIAL : ExpenseCategory.OTHER;
   }
 
   private resolveAvailableQuantityAfterTotalEdit(totalQuantity: number, consumedQuantity: number): number {
@@ -205,12 +240,48 @@ export class InventoryService {
     return rawMaterialSize;
   }
 
+  private resolveRawMaterialGrade(
+    category: InventoryCategory,
+    rawMaterialGrade?: InventoryRawMaterialGrade | null
+  ): InventoryRawMaterialGrade | null {
+    if (category !== InventoryCategory.RAW_MATERIAL) {
+      return null;
+    }
+
+    if (!rawMaterialGrade) {
+      throw new BadRequestException('Raw material grade is required for raw material inventory items');
+    }
+
+    return rawMaterialGrade;
+  }
+
+  private resolveSubCategory(
+    category: InventoryCategory,
+    subCategory?: InventorySubCategory | null
+  ): InventorySubCategory | null {
+    const allowedSubCategories = INVENTORY_SUB_CATEGORIES_BY_CATEGORY[category] ?? [];
+
+    if (allowedSubCategories.length === 0) {
+      return null;
+    }
+
+    if (!subCategory) {
+      throw new BadRequestException('Subcategory is required for this inventory category');
+    }
+
+    if (!allowedSubCategories.includes(subCategory)) {
+      throw new BadRequestException(`Subcategory ${subCategory} is not valid for ${category}`);
+    }
+
+    return subCategory;
+  }
+
   async assertAvailable(id: number, requestedQuantity: number): Promise<InventoryItem> {
     const item = await this.findEntityById(id);
     const availableQuantity = Number(item.availableQuantity);
     if (availableQuantity < requestedQuantity) {
       throw new BadRequestException(
-        `Not enough stock for ${item.name}. Available: ${availableQuantity}, Requested: ${requestedQuantity}`
+        `Not enough stock for ${buildInventoryItemLabel(item)}. Available: ${availableQuantity}, Requested: ${requestedQuantity}`
       );
     }
     return item;
@@ -219,15 +290,19 @@ export class InventoryService {
   mapItem(item: InventoryItem): InventoryItemResponseDto {
     return {
       id: item.id,
-      name: item.name,
+      displayName: buildInventoryItemLabel(item),
       category: item.category,
       unit: item.unit,
+      subCategory: item.subCategory,
       rawMaterialSize: item.rawMaterialSize,
+      rawMaterialGrade: item.rawMaterialGrade,
       totalQuantity: Number(item.totalQuantity),
       availableQuantity: Number(item.availableQuantity),
       consumedQuantity: Number(item.consumedQuantity),
       purchasePricePerUnit: Number(item.purchasePricePerUnit),
       totalValue: this.getTotalValue(item),
+      remainingMaterialValue: this.getRemainingMaterialValue(item),
+      consumedMaterialValue: this.getConsumedMaterialValue(item),
       status: item.status,
       notes: item.notes,
       createdAt: item.createdAt,

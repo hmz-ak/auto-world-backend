@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
@@ -8,6 +8,7 @@ import { PaginatedResult } from '../common/interfaces/paginated-result.interface
 import { multiplyMoney, toMoney } from '../common/utils/money.util';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
 import { PurchaseOrdersService } from '../purchase-orders/purchase-orders.service';
+import { PurchaseOrderStatus } from '../purchase-orders/constants/purchase-order.constants';
 import { RevenueEntry } from '../revenue/entities/revenue-entry.entity';
 import { CreateReceiptDto } from './dto/create-receipt.dto';
 import { ReceiptPrintResponseDto } from './dto/receipt-print-response.dto';
@@ -77,10 +78,23 @@ export class ReceiptsService {
   }
 
   async create(dto: CreateReceiptDto): Promise<ReceiptResponseDto> {
+    if (!dto.purchaseOrderId) {
+      throw new BadRequestException(
+        'Receipt must be linked to a completed purchase order so revenue is backed by production and inventory usage'
+      );
+    }
+
     const client = await this.clientsService.findEntityById(dto.clientId);
-    const purchaseOrder = dto.purchaseOrderId
-      ? await this.purchaseOrdersService.findEntityById(dto.purchaseOrderId)
-      : null;
+    const purchaseOrder = await this.purchaseOrdersService.findEntityById(dto.purchaseOrderId);
+
+    if (purchaseOrder.status !== PurchaseOrderStatus.COMPLETED) {
+      throw new BadRequestException('Receipt can only be created after the linked purchase order is completed');
+    }
+
+    if (purchaseOrder.client.id !== client.id) {
+      throw new BadRequestException('Receipt client must match the linked purchase order client');
+    }
+
     const items = dto.lineItems.map((item) =>
       this.receiptItemsRepository.create({
         description: item.description,

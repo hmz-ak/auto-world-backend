@@ -19,8 +19,15 @@ function createRepositoryMock() {
 
 describe('ReportsService', () => {
   let service: ReportsService;
-  let expensesService: { sumBetween: jest.Mock; summary: jest.Mock };
+  let expensesService: {
+    sumBetween: jest.Mock;
+    sumExcludingCategories: jest.Mock;
+    sumForCategories: jest.Mock;
+    sumBySubCategory: jest.Mock;
+    summary: jest.Mock;
+  };
   let revenueService: { sumBetween: jest.Mock };
+  let expensesRepository: ReturnType<typeof createRepositoryMock>;
   let workersRepository: ReturnType<typeof createRepositoryMock>;
   let inventoryRepository: ReturnType<typeof createRepositoryMock>;
   let ordersRepository: ReturnType<typeof createRepositoryMock>;
@@ -28,11 +35,15 @@ describe('ReportsService', () => {
   beforeEach(async () => {
     expensesService = {
       sumBetween: jest.fn(),
+      sumExcludingCategories: jest.fn(),
+      sumForCategories: jest.fn(),
+      sumBySubCategory: jest.fn(),
       summary: jest.fn()
     };
     revenueService = {
       sumBetween: jest.fn()
     };
+    expensesRepository = createRepositoryMock();
     workersRepository = createRepositoryMock();
     inventoryRepository = createRepositoryMock();
     ordersRepository = createRepositoryMock();
@@ -42,7 +53,7 @@ describe('ReportsService', () => {
         ReportsService,
         { provide: ExpensesService, useValue: expensesService },
         { provide: RevenueService, useValue: revenueService },
-        { provide: getRepositoryToken(Expense), useValue: createRepositoryMock() },
+        { provide: getRepositoryToken(Expense), useValue: expensesRepository },
         { provide: getRepositoryToken(RevenueEntry), useValue: createRepositoryMock() },
         { provide: getRepositoryToken(Worker), useValue: workersRepository },
         { provide: getRepositoryToken(InventoryItem), useValue: inventoryRepository },
@@ -53,36 +64,77 @@ describe('ReportsService', () => {
     service = module.get(ReportsService);
   });
 
+  function mockProfitInputs({
+    revenue = 500000,
+    totalExpenses = 450000,
+    rawMaterialCost = 150000,
+    operatingExpenses = 300000,
+    rawMaterialBreakdown = [],
+    byCategory = []
+  }: {
+    revenue?: number;
+    totalExpenses?: number;
+    rawMaterialCost?: number;
+    operatingExpenses?: number;
+    rawMaterialBreakdown?: Array<{ category: string; total: number }>;
+    byCategory?: Array<{ category: ExpenseCategory; total: number }>;
+  } = {}) {
+    revenueService.sumBetween.mockResolvedValue(revenue);
+    expensesService.sumBetween.mockResolvedValue(totalExpenses);
+    expensesService.sumForCategories.mockResolvedValue(rawMaterialCost);
+    expensesService.sumExcludingCategories.mockResolvedValue(operatingExpenses);
+    expensesService.sumBySubCategory.mockResolvedValue(rawMaterialBreakdown);
+    expensesService.summary.mockResolvedValue({ byCategory });
+  }
+
   afterEach(() => {
     jest.useRealTimers();
   });
 
   it('should calculate grossProfit as totalRevenue minus totalRawMaterialCost', async () => {
-    revenueService.sumBetween.mockResolvedValue(500000);
-    expensesService.sumBetween.mockResolvedValueOnce(150000).mockResolvedValueOnce(300000);
-    expensesService.summary.mockResolvedValue({ byCategory: [] });
+    mockProfitInputs();
 
     const report = await service.getProfitReport({ startDate: '2026-06-01', endDate: '2026-06-30' });
 
     expect(report.grossProfit).toBe(350000);
   });
 
-  it('should calculate netProfit as grossProfit minus totalOperatingExpenses', async () => {
-    revenueService.sumBetween.mockResolvedValue(500000);
-    expensesService.sumBetween.mockResolvedValueOnce(150000).mockResolvedValueOnce(300000);
-    expensesService.summary.mockResolvedValue({ byCategory: [] });
+  it('should calculate netProfit as grossProfit minus explicit operating expenses', async () => {
+    mockProfitInputs({ rawMaterialCost: 150000, operatingExpenses: 150000 });
 
     const report = await service.getProfitReport({ startDate: '2026-06-01', endDate: '2026-06-30' });
 
-    expect(report.netProfit).toBe(50000);
+    expect(report.totalOperatingExpenses).toBe(150000);
+    expect(report.netProfit).toBe(200000);
   });
 
-  it('should include every expense category that has entries in the breakdown', async () => {
-    revenueService.sumBetween.mockResolvedValue(500000);
-    expensesService.sumBetween.mockResolvedValueOnce(150000).mockResolvedValueOnce(300000);
-    expensesService.summary.mockResolvedValue({
+  it('should include raw material purchase expenses once in profit loss', async () => {
+    mockProfitInputs({
+      revenue: 0,
+      totalExpenses: 12250000,
+      rawMaterialCost: 12250000,
+      operatingExpenses: 0,
+      byCategory: [{ category: ExpenseCategory.RAW_MATERIAL, total: 12250000 }]
+    });
+
+    const report = await service.getProfitReport({ startDate: '2026-06-01', endDate: '2026-06-30' });
+
+    expect(report).toMatchObject({
+      totalRevenue: 0,
+      totalExpenses: 12250000,
+      totalRawMaterialCost: 12250000,
+      grossProfit: -12250000,
+      totalOperatingExpenses: 0,
+      netProfit: -12250000,
+      expenseBreakdown: []
+    });
+  });
+
+  it('should include only operating expense categories in the breakdown', async () => {
+    mockProfitInputs({
       byCategory: [
         { category: ExpenseCategory.RAW_MATERIAL, total: 150000 },
+        { category: ExpenseCategory.HARDWARE, total: 50000 },
         { category: ExpenseCategory.FUEL, total: 75000 },
         { category: ExpenseCategory.WAGES, total: 75000 }
       ]
@@ -91,16 +143,13 @@ describe('ReportsService', () => {
     const report = await service.getProfitReport({ startDate: '2026-06-01', endDate: '2026-06-30' });
 
     expect(report.expenseBreakdown).toEqual([
-      { category: ExpenseCategory.RAW_MATERIAL, total: 150000 },
       { category: ExpenseCategory.FUEL, total: 75000 },
       { category: ExpenseCategory.WAGES, total: 75000 }
     ]);
   });
 
   it('should return the requested dateRange in the response', async () => {
-    revenueService.sumBetween.mockResolvedValue(500000);
-    expensesService.sumBetween.mockResolvedValueOnce(150000).mockResolvedValueOnce(300000);
-    expensesService.summary.mockResolvedValue({ byCategory: [] });
+    mockProfitInputs();
 
     const report = await service.getProfitReport({ startDate: '2026-06-01', endDate: '2026-06-30' });
 
@@ -108,14 +157,13 @@ describe('ReportsService', () => {
   });
 
   it('should return zeroes when there is no revenue or expenses data', async () => {
-    revenueService.sumBetween.mockResolvedValue(0);
-    expensesService.sumBetween.mockResolvedValue(0);
-    expensesService.summary.mockResolvedValue({ byCategory: [] });
+    mockProfitInputs({ revenue: 0, totalExpenses: 0, rawMaterialCost: 0, operatingExpenses: 0 });
 
     const report = await service.getProfitReport({ startDate: '2026-06-01', endDate: '2026-06-30' });
 
     expect(report).toMatchObject({
       totalRevenue: 0,
+      totalExpenses: 0,
       totalRawMaterialCost: 0,
       grossProfit: 0,
       totalOperatingExpenses: 0,
@@ -125,14 +173,52 @@ describe('ReportsService', () => {
   });
 
   it('should return negative netProfit correctly when expenses exceed revenue', async () => {
-    revenueService.sumBetween.mockResolvedValue(100000);
-    expensesService.sumBetween.mockResolvedValueOnce(50000).mockResolvedValueOnce(200000);
-    expensesService.summary.mockResolvedValue({ byCategory: [{ category: ExpenseCategory.FUEL, total: 200000 }] });
+    mockProfitInputs({
+      revenue: 100000,
+      rawMaterialCost: 50000,
+      operatingExpenses: 150000,
+      byCategory: [{ category: ExpenseCategory.FUEL, total: 150000 }]
+    });
 
     const report = await service.getProfitReport({ startDate: '2026-06-01', endDate: '2026-06-30' });
 
     expect(report.grossProfit).toBe(50000);
-    expect(report.netProfit).toBe(-150000);
+    expect(report.totalOperatingExpenses).toBe(150000);
+    expect(report.netProfit).toBe(-100000);
+  });
+
+  it('should calculate raw material cost and operating expenses with separate expense queries', async () => {
+    mockProfitInputs({
+      revenue: 250000,
+      totalExpenses: 163500,
+      rawMaterialCost: 122500,
+      operatingExpenses: 41000,
+      rawMaterialBreakdown: [{ category: 'SPRING_STEEL_FLAT_BAR', total: 122500 }]
+    });
+
+    const report = await service.getProfitReport({ startDate: '2026-06-01', endDate: '2026-06-30' });
+
+    expect(expensesService.sumForCategories).toHaveBeenCalledWith(
+      '2026-06-01',
+      '2026-06-30',
+      [ExpenseCategory.RAW_MATERIAL, ExpenseCategory.CONSUMABLE, ExpenseCategory.HARDWARE, ExpenseCategory.PAINT]
+    );
+    expect(expensesService.sumExcludingCategories).toHaveBeenCalledWith('2026-06-01', '2026-06-30', [
+      ExpenseCategory.RAW_MATERIAL,
+      ExpenseCategory.CONSUMABLE,
+      ExpenseCategory.HARDWARE,
+      ExpenseCategory.PAINT
+    ]);
+    expect(expensesService.sumBySubCategory).toHaveBeenCalledWith('2026-06-01', '2026-06-30', [
+      ExpenseCategory.RAW_MATERIAL,
+      ExpenseCategory.CONSUMABLE,
+      ExpenseCategory.HARDWARE,
+      ExpenseCategory.PAINT
+    ]);
+    expect(report.totalRawMaterialCost).toBe(122500);
+    expect(report.rawMaterialBreakdown).toEqual([{ category: 'SPRING_STEEL_FLAT_BAR', total: 122500 }]);
+    expect(report.totalOperatingExpenses).toBe(41000);
+    expect(report.netProfit).toBe(86500);
   });
 
   it('should exclude workers already paid for this Saturday from dashboard salary due', async () => {

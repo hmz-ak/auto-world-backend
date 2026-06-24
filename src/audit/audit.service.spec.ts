@@ -3,7 +3,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ClientsService } from '../clients/clients.service';
-import { InventoryStatus, InventoryUnit } from '../inventory/constants/inventory.constants';
+import {
+  InventoryRawMaterialGrade,
+  InventoryRawMaterialSize,
+  InventoryStatus,
+  InventorySubCategory,
+  InventoryUnit
+} from '../inventory/constants/inventory.constants';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { PurchaseOrderStatus } from '../purchase-orders/constants/purchase-order.constants';
@@ -22,10 +28,11 @@ import { ManufacturingProcessSheet } from './entities/manufacturing-process-shee
 function createInventoryItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
   return {
     id: 1,
-    name: 'Steel Patti',
     category: 'RAW_MATERIAL' as InventoryItem['category'],
     unit: InventoryUnit.KG,
-    rawMaterialSize: null,
+    subCategory: InventorySubCategory.SPRING_STEEL_FLAT_BAR,
+    rawMaterialSize: InventoryRawMaterialSize.SIZE_50_X_6,
+    rawMaterialGrade: InventoryRawMaterialGrade.SUP9,
     totalQuantity: 100,
     availableQuantity: 100,
     consumedQuantity: 0,
@@ -185,11 +192,11 @@ describe('AuditService', () => {
 
   it('should throw BadRequestException if consumed quantity exceeds availableQuantity for any item', async () => {
     inventoryService.assertAvailable.mockRejectedValue(
-      new BadRequestException('Not enough stock for Steel Patti. Available: 10, Requested: 12')
+      new BadRequestException('Not enough stock for SUP9 Spring steel flat bar / patti 50 x 6. Available: 10, Requested: 12')
     );
 
     await expect(service.createBatch(createDto([{ inventoryItemId: 1, quantityConsumed: 12 }]))).rejects.toThrow(
-      'Steel Patti'
+      'SUP9 Spring steel flat bar / patti 50 x 6'
     );
     await expect(service.createBatch(createDto([{ inventoryItemId: 1, quantityConsumed: 12 }]))).rejects.toThrow(
       'Available: 10'
@@ -271,7 +278,7 @@ describe('AuditService', () => {
 
   it('should create one AuditLogItem per consumed item in the request', async () => {
     const first = createInventoryItem({ id: 1, availableQuantity: 100 });
-    const second = createInventoryItem({ id: 2, name: 'Quenching Oil', availableQuantity: 40 });
+    const second = createInventoryItem({ id: 2, availableQuantity: 40 });
     inventoryService.assertAvailable.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
     mockFindOneWithItems([first, second]);
 
@@ -288,7 +295,7 @@ describe('AuditService', () => {
 
   it('should use a transaction for deduction writes so failures rollback together', async () => {
     const first = createInventoryItem({ id: 1, availableQuantity: 100 });
-    const second = createInventoryItem({ id: 2, name: 'Quenching Oil', availableQuantity: 40 });
+    const second = createInventoryItem({ id: 2, availableQuantity: 40 });
     inventoryService.assertAvailable.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
     manager.update.mockRejectedValueOnce(new Error('database failure'));
 

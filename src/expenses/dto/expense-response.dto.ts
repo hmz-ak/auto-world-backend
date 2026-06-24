@@ -7,6 +7,9 @@ export class ExpenseResponseDto {
   @ApiProperty({ example: 'FUEL', description: 'Expense category' })
   category: string;
 
+  @ApiProperty({ example: 'QUENCHING_OIL', nullable: true, description: 'Expense subcategory' })
+  subCategory: string | null;
+
   @ApiProperty({ example: 'Furnace fuel purchase', description: 'Description' })
   description: string;
 

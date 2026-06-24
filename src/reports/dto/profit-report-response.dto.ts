@@ -16,7 +16,10 @@ export class ProfitReportResponseDto {
   @ApiProperty({ example: 150000, description: 'Total revenue' })
   totalRevenue: number;
 
-  @ApiProperty({ example: 50000, description: 'Total raw material cost' })
+  @ApiProperty({ example: 125000, description: 'Total expenses' })
+  totalExpenses: number;
+
+  @ApiProperty({ example: 50000, description: 'Total raw material and production input cost' })
   totalRawMaterialCost: number;
 
   @ApiProperty({ example: 100000, description: 'Gross profit' })
@@ -28,6 +31,9 @@ export class ProfitReportResponseDto {
   @ApiProperty({ example: 25000, description: 'Net profit' })
   netProfit: number;
 
-  @ApiProperty({ type: [ExpenseCategoryTotalDto], description: 'Expense breakdown' })
+  @ApiProperty({ type: [ExpenseCategoryTotalDto], description: 'Raw material/input expense breakdown by subcategory' })
+  rawMaterialBreakdown: ExpenseCategoryTotalDto[];
+
+  @ApiProperty({ type: [ExpenseCategoryTotalDto], description: 'Operating expense breakdown' })
   expenseBreakdown: ExpenseCategoryTotalDto[];
 }

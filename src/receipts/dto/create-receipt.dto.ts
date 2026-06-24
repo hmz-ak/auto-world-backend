@@ -9,11 +9,10 @@ export class CreateReceiptDto {
   @IsInt()
   clientId: number;
 
-  @ApiPropertyOptional({ example: 1, description: 'Optional purchase order ID' })
-  @IsOptional()
+  @ApiProperty({ example: 1, description: 'Completed purchase order ID' })
   @Type(() => Number)
   @IsInt()
-  purchaseOrderId?: number;
+  purchaseOrderId: number;
 
   @ApiProperty({ example: '2026-06-22', description: 'Issue date' })
   @IsDateString()

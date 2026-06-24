@@ -20,6 +20,13 @@ import { ReportQueryDto } from './dto/report-query.dto';
 
 @Injectable()
 export class ReportsService {
+  private readonly rawMaterialExpenseCategories = [
+    ExpenseCategory.RAW_MATERIAL,
+    ExpenseCategory.CONSUMABLE,
+    ExpenseCategory.HARDWARE,
+    ExpenseCategory.PAINT
+  ];
+
   constructor(
     private readonly expensesService: ExpensesService,
     private readonly revenueService: RevenueService,
@@ -37,12 +44,22 @@ export class ReportsService {
 
   async profit(query: ReportQueryDto): Promise<ProfitReportResponseDto> {
     const totalRevenue = await this.revenueService.sumBetween(query.startDate, query.endDate);
-    const totalRawMaterialCost = await this.expensesService.sumBetween(
+    const totalExpenses = await this.expensesService.sumBetween(query.startDate, query.endDate);
+    const totalRawMaterialCost = await this.expensesService.sumForCategories(
       query.startDate,
       query.endDate,
-      ExpenseCategory.RAW_MATERIAL
+      this.rawMaterialExpenseCategories
     );
-    const totalOperatingExpenses = await this.expensesService.sumBetween(query.startDate, query.endDate);
+    const totalOperatingExpenses = await this.expensesService.sumExcludingCategories(
+      query.startDate,
+      query.endDate,
+      this.rawMaterialExpenseCategories
+    );
+    const rawMaterialBreakdown = await this.expensesService.sumBySubCategory(
+      query.startDate,
+      query.endDate,
+      this.rawMaterialExpenseCategories
+    );
     const expenseSummary = await this.expensesService.summary({ ...query, page: 1, limit: 100 });
     const grossProfit = toMoney(totalRevenue - totalRawMaterialCost);
     const netProfit = toMoney(grossProfit - totalOperatingExpenses);
@@ -50,11 +67,15 @@ export class ReportsService {
     return {
       dateRange: { from: query.startDate ?? null, to: query.endDate ?? null },
       totalRevenue,
+      totalExpenses,
       totalRawMaterialCost,
       grossProfit,
       totalOperatingExpenses,
       netProfit,
-      expenseBreakdown: expenseSummary.byCategory
+      rawMaterialBreakdown,
+      expenseBreakdown: expenseSummary.byCategory.filter(
+        (expense) => !this.rawMaterialExpenseCategories.includes(expense.category as ExpenseCategory)
+      )
     };
   }
 

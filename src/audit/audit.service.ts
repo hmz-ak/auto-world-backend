@@ -7,9 +7,10 @@ import { PaginatedResult } from '../common/interfaces/paginated-result.interface
 import { toMoney } from '../common/utils/money.util';
 import { buildPaginatedResult } from '../common/utils/pagination.util';
 import { InventoryCategory, InventoryUnit } from '../inventory/constants/inventory.constants';
-import { InventoryService } from '../inventory/inventory.service';
-import { PurchaseOrdersService } from '../purchase-orders/purchase-orders.service';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { InventoryService } from '../inventory/inventory.service';
+import { buildInventoryItemLabel } from '../inventory/utils/inventory-label.util';
+import { PurchaseOrdersService } from '../purchase-orders/purchase-orders.service';
 import { PurchaseOrderStatus } from '../purchase-orders/constants/purchase-order.constants';
 import { PurchaseOrder } from '../purchase-orders/entities/purchase-order.entity';
 import {
@@ -360,7 +361,7 @@ export class AuditService {
       consumedItems: (log.items ?? []).map((item) => ({
         id: item.id,
         inventoryItemId: item.inventoryItem.id,
-        inventoryItemName: item.inventoryItem.name,
+        inventoryItemName: buildInventoryItemLabel(item.inventoryItem),
         rawMaterialSize: item.inventoryItem.rawMaterialSize,
         unit: item.inventoryItem.unit,
         quantityConsumed: Number(item.quantityConsumed)
@@ -401,7 +402,7 @@ export class AuditService {
       consumedItems: (processSheet.consumedItems ?? []).map((item) => ({
         id: item.id,
         inventoryItemId: item.inventoryItem.id,
-        inventoryItemName: item.inventoryItem.name,
+        inventoryItemName: buildInventoryItemLabel(item.inventoryItem),
         rawMaterialSize: item.inventoryItem.rawMaterialSize,
         unit: item.inventoryItem.unit,
         quantityConsumed: Number(item.quantityConsumed)

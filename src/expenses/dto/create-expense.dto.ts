@@ -8,6 +8,12 @@ export class CreateExpenseDto {
   @IsEnum(ExpenseCategory)
   category: ExpenseCategory;
 
+  @ApiPropertyOptional({ example: 'QUENCHING_OIL', description: 'Raw material/input subcategory when applicable' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  subCategory?: string;
+
   @ApiProperty({ example: 'Furnace fuel purchase', description: 'Description' })
   @IsString()
   @MaxLength(255)

@@ -4,8 +4,10 @@ import { ExpenseCategory } from '../expenses/constants/expense.constants';
 import { ExpensesService } from '../expenses/expenses.service';
 import {
   InventoryCategory,
+  InventoryRawMaterialGrade,
   InventoryRawMaterialSize,
   InventoryStatus,
+  InventorySubCategory,
   InventoryUnit
 } from './constants/inventory.constants';
 import { InventoryItem } from './entities/inventory-item.entity';
@@ -41,10 +43,11 @@ describe('InventoryService', () => {
   function createInventoryItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
     return {
       id: 1,
-      name: 'Steel Patti',
       category: InventoryCategory.RAW_MATERIAL,
       unit: InventoryUnit.KG,
+      subCategory: InventorySubCategory.SPRING_STEEL_FLAT_BAR,
       rawMaterialSize: InventoryRawMaterialSize.SIZE_50_X_6,
+      rawMaterialGrade: InventoryRawMaterialGrade.SUP9,
       totalQuantity: 50000,
       availableQuantity: 50000,
       consumedQuantity: 0,
@@ -63,10 +66,11 @@ describe('InventoryService', () => {
       jest.setSystemTime(new Date('2026-06-24T09:00:00.000Z'));
 
       await service.create({
-        name: 'Steel Patti',
         category: InventoryCategory.RAW_MATERIAL,
         unit: InventoryUnit.KG,
+        subCategory: InventorySubCategory.SPRING_STEEL_FLAT_BAR,
         rawMaterialSize: InventoryRawMaterialSize.SIZE_50_X_6,
+        rawMaterialGrade: InventoryRawMaterialGrade.SUP9,
         totalQuantity: 100,
         purchasePricePerUnit: 250,
         notes: 'Fresh stock'
@@ -75,13 +79,38 @@ describe('InventoryService', () => {
       expect(expensesService.createSystemExpense).toHaveBeenCalledWith(
         expect.objectContaining({
           category: ExpenseCategory.RAW_MATERIAL,
-          description: 'Inventory purchase: Steel Patti',
+          subCategory: InventorySubCategory.SPRING_STEEL_FLAT_BAR,
+          description: 'Inventory purchase: SUP9 Spring steel flat bar / patti 50 x 6',
           amount: 25000,
           expenseDate: '2026-06-24'
         })
       );
 
       jest.useRealTimers();
+    });
+
+    it.each([
+      [InventoryCategory.CONSUMABLE, InventorySubCategory.QUENCHING_OIL, ExpenseCategory.RAW_MATERIAL, 'Quenching oil'],
+      [InventoryCategory.HARDWARE, InventorySubCategory.CENTER_BOLTS, ExpenseCategory.RAW_MATERIAL, 'Center bolts'],
+      [InventoryCategory.PAINT, InventorySubCategory.PRIMER, ExpenseCategory.RAW_MATERIAL, 'Primer'],
+      [InventoryCategory.OTHER, undefined, ExpenseCategory.OTHER, 'Other']
+    ])('should create a %s expense when %s inventory is added', async (inventoryCategory, subCategory, expenseCategory, label) => {
+      await service.create({
+        category: inventoryCategory,
+        unit: InventoryUnit.KG,
+        subCategory,
+        totalQuantity: 10,
+        purchasePricePerUnit: 100
+      });
+
+      expect(expensesService.createSystemExpense).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: expenseCategory,
+          subCategory,
+          description: `Inventory purchase: ${label}`,
+          amount: 1000
+        })
+      );
     });
   });
 
@@ -182,9 +211,12 @@ describe('InventoryService', () => {
 
   it('should calculate total value from available quantity', () => {
     const result = service.mapItem(
-      createInventoryItem({ totalQuantity: 50000, availableQuantity: 20000, purchasePricePerUnit: 245 })
+      createInventoryItem({ totalQuantity: 50000, availableQuantity: 20000, consumedQuantity: 30000, purchasePricePerUnit: 245 })
     );
 
     expect(result.totalValue).toBe(4900000);
+    expect(result.remainingMaterialValue).toBe(4900000);
+    expect(result.consumedMaterialValue).toBe(7350000);
+    expect(result.displayName).toBe('SUP9 Spring steel flat bar / patti 50 x 6');
   });
 });
